@@ -1,0 +1,36 @@
+name: Build Sing-box IPK
+
+on: [push]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Initialization environment
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential ccache gettext libncurses5-dev libssl-dev xz-utils zlib1g-dev
+
+      - name: Download SDK
+        run: |
+          # 這裡以下載 OpenWrt 22.03 x86_64 SDK 為例
+          wget https://openwrt.org
+          tar xf openwrt-sdk-*.tar.xz
+          mv openwrt-sdk-* sdk
+
+      - name: Build Package
+        run: |
+          cd sdk
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
+          ln -s ../../luci-app-singbox package/luci-app-singbox
+          make package/luci-app-singbox/compile V=s
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: luci-app-singbox-ipk
+          path: sdk/bin/packages/*/base/luci-app-singbox*.ipk
