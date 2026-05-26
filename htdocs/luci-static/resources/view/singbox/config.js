@@ -9,17 +9,17 @@
 return L.view.extend({
 	// 檢查服務狀態的函數
 	checkStatus: function() {
-		return L.resolveDefault(fs.exec('/usr/bin/pgrep', ['sing-box']), {}).then(function(res) {
+		return fs.exec('/usr/bin/pgrep', ['sing-box']).then(function(res) {
 			var isRunning = (res.code === 0);
 			var el = document.getElementById('sb_status_label');
 			if (el) {
 				el.textContent = isRunning ? _('運行中') : _('已停止');
 				el.style.background = isRunning ? '#46a546' : '#999';
 			}
-		});
+		}).catch(function() {});
 	},
 
-	// 切換配置的核心邏輯：將選中的檔案複製為 config.json 並重啟
+	// 切換配置的核心邏輯
 	handleSwitch: function(filename, confdir) {
 		var target = confdir + '/config.json';
 		var source = confdir + '/' + filename;
@@ -38,28 +38,32 @@ return L.view.extend({
 	},
 
 	render: function() {
-		// 修正點：使用 Promise.all 確保模組加載後，精確提取對象
-		return Promise.all([
-			L.resolveDefault(L.require('form'), {}),
-			L.resolveDefault(L.require('fs'), {}),
-			L.resolveDefault(L.require('uci'), {})
-		]).then(L.bind(function(modules) {
-			var form = modules[0]; // 顯式指定索引
+		// 修正點：顯式手動解析所有需要的模組
+		var luci_form = L.require('form');
+		var luci_fs = L.require('fs');
+		var luci_uci = L.require('uci');
+		var luci_poll = L.require('poll');
+
+		return Promise.all([luci_form, luci_fs, luci_uci, luci_poll]).then(L.bind(function(modules) {
+			var form = modules[0];
 			var fs = modules[1];
 			var uci = modules[2];
+			var poll = modules[3];
+			
 			var m, s, o;
 
 			m = new form.Map('sing-box', _('Sing-box Bridge'), _('SING-BOX 服務管理'));
 
-			// --- 1. 服務狀態區域 ---
+			// --- 1. 服務狀態 ---
 			s = m.section(form.TypedSection, '_status', _('服務狀態'));
 			s.anonymous = true;
 			s.render = L.bind(function() {
+				// 確保 poll 被正確調用
 				poll.add(L.bind(this.checkStatus, this), 5);
 				return E('div', { 'class': 'cbi-value' }, [
 					E('label', { 'class': 'cbi-value-title' }, _('當前狀態')),
 					E('div', { 'class': 'cbi-value-field' }, [
-						E('span', { 'id': 'sb_status_label', 'class': 'label', 'style': 'color:#fff; padding:2px 6px; border-radius:3px;' }, _('檢測中...'))
+						E('span', { 'id': 'sb_status_label', 'class': 'label', 'style': 'color:#fff; padding:2px 6px; border-radius:3px; background:#999;' }, _('檢測中...'))
 					])
 				]);
 			}, this);
@@ -70,7 +74,7 @@ return L.view.extend({
 			o.default = '/etc/sing-box';
 			o.rmempty = false;
 
-			// --- 3. 自動發現列表 (動態掃描目錄下的 JSON 檔案) ---
+			// --- 3. 自動發現列表 ---
 			s = m.section(form.TypedSection, '_list', _('可用配置檔案'));
 			s.anonymous = true;
 			s.render = L.bind(function() {
@@ -84,9 +88,10 @@ return L.view.extend({
 						])
 					]);
 
+					var found = false;
 					files.forEach(L.bind(function(file) {
-						// 過濾出 JSON 檔案，且排除掉正在使用的目標檔案
 						if (file.name.endsWith('.json') && file.name !== 'config.json') {
+							found = true;
 							table.appendChild(E('tr', { 'class': 'tr' }, [
 								E('td', { 'class': 'td' }, file.name),
 								E('td', { 'class': 'td' }, [
@@ -98,6 +103,10 @@ return L.view.extend({
 							]));
 						}
 					}, this));
+
+					if (!found) {
+						return E('div', { 'class': 'alert-message info' }, _('目錄中沒有可用的 JSON 配置文件。'));
+					}
 
 					return table;
 				}, this)).catch(function() {
