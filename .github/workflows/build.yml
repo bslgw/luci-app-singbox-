@@ -20,12 +20,17 @@ jobs:
 
       - name: Download Official OpenWrt SDK
         run: |
-          # 採用更嚴格的下載邏輯
-          curl -L -o sdk.tar.xz "https://openwrt.org"
+          # 將連結拆分後拼接，避免被 Runner 錯誤解析
+          HOST="https://downloads.openwrt.org"
+          PATH_URL="/releases/22.03.0/targets/x86/64/openwrt-sdk-22.03.0-x86-64_gcc-11.2.0_musl.Linux-x86_64.tar.xz"
+          FULL_URL="${HOST}${PATH_URL}"
           
-          # 檢查檔案是否真的是壓縮檔 (避免抓到 HTML)
+          echo "正在下載: ${FULL_URL}"
+          curl -L -o sdk.tar.xz "${FULL_URL}"
+          
           if ! file sdk.tar.xz | grep -q "XZ compressed data"; then
-            echo "錯誤：下載的檔案不是有效的 XZ 壓縮檔，請檢查連結。"
+            echo "嚴重錯誤：檔案內容不正確。讀取到的檔案類型為："
+            file sdk.tar.xz
             exit 1
           fi
           
