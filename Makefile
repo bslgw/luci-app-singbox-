@@ -10,10 +10,12 @@ define Package/luci-app-singbox
   SECTION:=luci
   CATEGORY:=LuCI
   SUBMENU:=3. Applications
-  TITLE:=LuCI Support for Sing-box (Bridge for daed)
-  DEPENDS:=+luci-base +sing-box
+  TITLE:=LuCI Support for Sing-box
+  # 強制依賴：安裝此 ipk 時，opkg 會自動嘗試下載並安裝以下包
+  DEPENDS:=+luci-base +sing-box +jq +bash +coreutils-base64
   PKGARCH:=all
 endef
+
 
 define Build/Compile
 endef
