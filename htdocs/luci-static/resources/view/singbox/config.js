@@ -7,10 +7,9 @@
 'import poll';
 
 return L.view.extend({
-	// 使用系統服務指令檢查狀態，這比 pgrep 更準確
+	// 使用更穩健的狀態檢查
 	checkStatus: function() {
 		return L.fs.exec('/etc/init.d/sing-box', ['status']).then(function(res) {
-			// 通常 OpenWrt 服務腳本返回 0 代表 running
 			var isRunning = (res.code === 0);
 			var el = document.getElementById('sb_status_label');
 			if (el) {
@@ -18,13 +17,12 @@ return L.view.extend({
 				el.style.background = isRunning ? '#46a546' : '#999';
 			}
 		}).catch(function() {
-			// 如果 init 腳本不支持 status，回退到檢測進程名
 			return L.fs.exec('/usr/bin/pgrep', ['sing-box']).then(function(res) {
 				var isRunning = (res.code === 0);
 				var el = document.getElementById('sb_status_label');
-				if (el && isRunning) {
-					el.textContent = _('運行中 (進程檢測)');
-					el.style.background = '#46a546';
+				if (el) {
+					el.textContent = isRunning ? _('運行中 (進程)') : _('已停止');
+					el.style.background = isRunning ? '#46a546' : '#999';
 				}
 			});
 		});
@@ -74,13 +72,27 @@ return L.view.extend({
 	},
 
 	render: function() {
-		return Promise.all([L.require('form'), L.require('fs'), L.require('ui'), L.require('uci'), L.require('poll')]).then(L.bind(function(modules) {
-			var form = modules, fs = modules, ui = modules, uci = modules, poll = modules;
-			L.ui = ui; L.fs = fs;
+		// 顯式載入所有模組
+		return Promise.all([
+			L.require('form'),
+			L.require('fs'),
+			L.require('ui'),
+			L.require('uci'),
+			L.require('poll')
+		]).then(L.bind(function(modules) {
+			// 修正點：使用明確的陣列索引賦值，防止 ReferenceError 或 TypeError
+			var form = modules[0];
+			var fs = modules[1];
+			var ui = modules[2];
+			var uci = modules[3];
+			var poll = modules[4];
+			
+			// 掛載到全局 L 以供外部函數調用
+			L.ui = ui;
+			L.fs = fs;
 
 			var m = new form.Map('sing-box', _('Sing-box Bridge'), _('SING-BOX 服務管理'));
 
-			// 1. 服務控制區
 			var s = m.section(form.TypedSection, '_status', _('服務控制'));
 			s.anonymous = true;
 			s.render = L.bind(function() {
@@ -98,11 +110,9 @@ return L.view.extend({
 				]);
 			}, this);
 
-			// 2. 基礎設置
 			s = m.section(form.NamedSection, 'main', 'singbox', _('基礎設置'));
 			s.option(form.Value, 'confdir', _('配置文件目錄')).default = '/etc/sing-box';
 
-			// 3. 檔案列表管理
 			s = m.section(form.TypedSection, '_list', _('可用配置文件'));
 			s.anonymous = true;
 			s.render = L.bind(function() {
