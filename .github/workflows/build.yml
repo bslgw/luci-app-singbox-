@@ -16,12 +16,13 @@ jobs:
       - name: Setup Compilation Environment
         run: |
           sudo apt-get update
-          # 移除 python3-distutils，改用 python3 和基礎工具，增加 SDK 必備的 rsync 和 gawk
           sudo apt-get install -y build-essential ccache gettext libncurses5-dev libssl-dev xz-utils zlib1g-dev python3 rsync gawk file wget
 
       - name: Download Official OpenWrt SDK
         run: |
-          wget -O sdk.tar.xz https://openwrt.org
+          # 使用變數存儲連結，確保 wget 完整讀取
+          SDK_URL="https://openwrt.org"
+          wget -O sdk.tar.xz "$SDK_URL"
           mkdir sdk
           tar -xJf sdk.tar.xz -C sdk --strip-components=1
 
@@ -31,20 +32,18 @@ jobs:
           ./scripts/feeds update -a
           ./scripts/feeds install -a
           mkdir -p package/luci-app-singbox
-          # 確保 Makefile 位於正確位置
+          # 複製檔案
           cp -r ../Makefile ../htdocs ../root package/luci-app-singbox/
 
       - name: Compile IPK
         run: |
           cd sdk
-          # 產生預設配置
           make defconfig
-          # 只編譯我們的 luci-app-singbox，V=s 用於排錯
+          # 僅編譯我們的插件
           make package/luci-app-singbox/compile V=s
 
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
           name: luci-app-singbox-ipk
-          # 修改為通配符路徑，確保能抓到編譯出的 ipk
           path: sdk/bin/packages/x86_64/custom/luci-app-singbox*.ipk
