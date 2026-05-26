@@ -20,9 +20,15 @@ jobs:
 
       - name: Download Official OpenWrt SDK
         run: |
-          # 使用變數存儲連結，確保 wget 完整讀取
-          SDK_URL="https://openwrt.org"
-          wget -O sdk.tar.xz "$SDK_URL"
+          # 採用更嚴格的下載邏輯
+          curl -L -o sdk.tar.xz "https://openwrt.org"
+          
+          # 檢查檔案是否真的是壓縮檔 (避免抓到 HTML)
+          if ! file sdk.tar.xz | grep -q "XZ compressed data"; then
+            echo "錯誤：下載的檔案不是有效的 XZ 壓縮檔，請檢查連結。"
+            exit 1
+          fi
+          
           mkdir sdk
           tar -xJf sdk.tar.xz -C sdk --strip-components=1
 
@@ -32,14 +38,12 @@ jobs:
           ./scripts/feeds update -a
           ./scripts/feeds install -a
           mkdir -p package/luci-app-singbox
-          # 複製檔案
           cp -r ../Makefile ../htdocs ../root package/luci-app-singbox/
 
       - name: Compile IPK
         run: |
           cd sdk
           make defconfig
-          # 僅編譯我們的插件
           make package/luci-app-singbox/compile V=s
 
       - name: Upload Artifacts
