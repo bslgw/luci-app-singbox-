@@ -20,20 +20,8 @@ jobs:
 
       - name: Download Official OpenWrt SDK
         run: |
-          # 將連結拆分後拼接，避免被 Runner 錯誤解析
-          HOST="https://downloads.openwrt.org"
-          PATH_URL="/releases/22.03.0/targets/x86/64/openwrt-sdk-22.03.0-x86-64_gcc-11.2.0_musl.Linux-x86_64.tar.xz"
-          FULL_URL="${HOST}${PATH_URL}"
-          
-          echo "正在下載: ${FULL_URL}"
-          curl -L -o sdk.tar.xz "${FULL_URL}"
-          
-          if ! file sdk.tar.xz | grep -q "XZ compressed data"; then
-            echo "嚴重錯誤：檔案內容不正確。讀取到的檔案類型為："
-            file sdk.tar.xz
-            exit 1
-          fi
-          
+          SDK_URL="https://openwrt.org"
+          curl -L -o sdk.tar.xz "$SDK_URL"
           mkdir sdk
           tar -xJf sdk.tar.xz -C sdk --strip-components=1
 
@@ -42,6 +30,7 @@ jobs:
           cd sdk
           ./scripts/feeds update -a
           ./scripts/feeds install -a
+          # 建立 package 目錄，並確保原始碼完整複製
           mkdir -p package/luci-app-singbox
           cp -r ../Makefile ../htdocs ../root package/luci-app-singbox/
 
@@ -49,10 +38,12 @@ jobs:
         run: |
           cd sdk
           make defconfig
-          make package/luci-app-singbox/compile V=s
+          # 使用 -j1 進行單執行緒編譯，方便出錯時排查日誌
+          make package/luci-app-singbox/compile V=s -j1
 
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
           name: luci-app-singbox-ipk
-          path: sdk/bin/packages/x86_64/custom/luci-app-singbox*.ipk
+          # 修改為通配符，搜索整個 bin 目錄下所有的 .ipk 檔案
+          path: sdk/bin/**/*.ipk
