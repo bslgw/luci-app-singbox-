@@ -1,1 +1,11 @@
-#
+# 基礎配置
+config singbox 'main'
+    option enabled '1'
+    option current_node 'node_1' # 記錄目前切換到的節點
+
+# 節點配置 (每個節點一個 section)
+config node 'node_1'
+    option name '香港 01'
+    option type 'ss'
+    option server '1.2.3.4'
+    option config_json '{...}' # 直接存儲該節點的 sing-box 格式 JSON
