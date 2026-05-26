@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4  # 順便更新到 v4
 
       - name: Build IPK
         uses: immortalwrt/gh-action-sdk@master
@@ -22,7 +22,7 @@ jobs:
           INDEX: 1
 
       - name: Upload Artifacts
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4  # 這裡已修正為 v4
         with:
           name: luci-app-singbox-ipk
           path: bin/packages/*/custom/luci-app-singbox*.ipk
