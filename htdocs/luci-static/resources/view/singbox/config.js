@@ -7,49 +7,54 @@
 'import poll';
 
 return L.view.extend({
-	// 檢查服務狀態的函數
+	// 使用 L.fs 代替 fs，確保在函數內部可用
 	checkStatus: function() {
-		return fs.exec('/usr/bin/pgrep', ['sing-box']).then(function(res) {
+		return L.resolveDefault(L.fs.exec('/usr/bin/pgrep', ['sing-box']), {}).then(function(res) {
 			var isRunning = (res.code === 0);
 			var el = document.getElementById('sb_status_label');
 			if (el) {
 				el.textContent = isRunning ? _('運行中') : _('已停止');
 				el.style.background = isRunning ? '#46a546' : '#999';
 			}
-		}).catch(function() {});
+		});
 	},
 
-	// 切換配置的核心邏輯
 	handleSwitch: function(filename, confdir) {
 		var target = confdir + '/config.json';
 		var source = confdir + '/' + filename;
 		
-		ui.showModal(_('切換配置中'), [E('p', _('正在應用 %s ...').format(filename))]);
+		L.ui.showModal(_('切換配置中'), [E('p', _('正在應用 %s ...').format(filename))]);
 		
-		return fs.exec('/bin/cp', [source, target]).then(function() {
-			return fs.exec('/etc/init.d/sing-box', ['restart']);
+		return L.fs.exec('/bin/cp', [source, target]).then(function() {
+			return L.fs.exec('/etc/init.d/sing-box', ['restart']);
 		}).then(function() {
-			ui.hideModal();
-			ui.addNotification(null, E('p', _('配置已更換為 %s 並重啟服務').format(filename)), 'info');
+			L.ui.hideModal();
+			L.ui.addNotification(null, E('p', _('配置已更換為 %s 並重啟服務').format(filename)), 'info');
 		}).catch(function(e) {
-			ui.hideModal();
-			ui.addNotification(null, E('p', _('操作失敗: %s').format(e)), 'danger');
+			L.ui.hideModal();
+			L.ui.addNotification(null, E('p', _('操作失敗: %s').format(e)), 'danger');
 		});
 	},
 
 	render: function() {
-		// 修正點：顯式手動解析所有需要的模組
-		var luci_form = L.require('form');
-		var luci_fs = L.require('fs');
-		var luci_uci = L.require('uci');
-		var luci_poll = L.require('poll');
-
-		return Promise.all([luci_form, luci_fs, luci_uci, luci_poll]).then(L.bind(function(modules) {
+		// 預先加載所有模組到 L 命名空間，徹底杜絕 undefined
+		return Promise.all([
+			L.require('form'),
+			L.require('fs'),
+			L.require('ui'),
+			L.require('uci'),
+			L.require('poll')
+		]).then(L.bind(function(modules) {
 			var form = modules[0];
 			var fs = modules[1];
-			var uci = modules[2];
-			var poll = modules[3];
+			var ui = modules[2];
+			var uci = modules[3];
+			var poll = modules[4];
 			
+			// 將模組掛載到全局 L 下供其他函數使用
+			L.ui = ui;
+			L.fs = fs;
+
 			var m, s, o;
 
 			m = new form.Map('sing-box', _('Sing-box Bridge'), _('SING-BOX 服務管理'));
@@ -58,7 +63,6 @@ return L.view.extend({
 			s = m.section(form.TypedSection, '_status', _('服務狀態'));
 			s.anonymous = true;
 			s.render = L.bind(function() {
-				// 確保 poll 被正確調用
 				poll.add(L.bind(this.checkStatus, this), 5);
 				return E('div', { 'class': 'cbi-value' }, [
 					E('label', { 'class': 'cbi-value-title' }, _('當前狀態')),
@@ -74,7 +78,7 @@ return L.view.extend({
 			o.default = '/etc/sing-box';
 			o.rmempty = false;
 
-			// --- 3. 自動發現列表 ---
+			// --- 3. 可用配置列表 ---
 			s = m.section(form.TypedSection, '_list', _('可用配置檔案'));
 			s.anonymous = true;
 			s.render = L.bind(function() {
@@ -88,27 +92,23 @@ return L.view.extend({
 						])
 					]);
 
-					var found = false;
+					var hasJson = false;
 					files.forEach(L.bind(function(file) {
 						if (file.name.endsWith('.json') && file.name !== 'config.json') {
-							found = true;
+							hasJson = true;
 							table.appendChild(E('tr', { 'class': 'tr' }, [
 								E('td', { 'class': 'td' }, file.name),
 								E('td', { 'class': 'td' }, [
 									E('button', {
 										'class': 'cbi-button cbi-button-apply',
-										'click': ui.createHandlerFn(this, 'handleSwitch', file.name, confdir)
+										'click': L.ui.createHandlerFn(this, 'handleSwitch', file.name, confdir)
 									}, _('選用並重啟'))
 								])
 							]));
 						}
 					}, this));
 
-					if (!found) {
-						return E('div', { 'class': 'alert-message info' }, _('目錄中沒有可用的 JSON 配置文件。'));
-					}
-
-					return table;
+					return hasJson ? table : E('div', { 'class': 'alert-message info' }, _('目錄中沒有可用的 JSON 配置檔案。'));
 				}, this)).catch(function() {
 					return E('div', { 'class': 'alert-message warning' }, _('無法讀取目錄，請確認路徑正確。'));
 				});
