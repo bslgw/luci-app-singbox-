@@ -3,12 +3,13 @@
 'import fs';
 'import view';
 'import form';
+'import uci';
 'import poll';
 
 return L.view.extend({
-	// 檢查服務狀態
+	// 檢查服務狀態的函數
 	checkStatus: function() {
-		return fs.exec('/usr/bin/pgrep', ['sing-box']).then(function(res) {
+		return L.resolveDefault(fs.exec('/usr/bin/pgrep', ['sing-box']), {}).then(function(res) {
 			var isRunning = (res.code === 0);
 			var el = document.getElementById('sb_status_label');
 			if (el) {
@@ -18,7 +19,7 @@ return L.view.extend({
 		});
 	},
 
-	// 切換配置的核心邏輯
+	// 切換配置的核心邏輯：將選中的檔案複製為 config.json 並重啟
 	handleSwitch: function(filename, confdir) {
 		var target = confdir + '/config.json';
 		var source = confdir + '/' + filename;
@@ -37,17 +38,20 @@ return L.view.extend({
 	},
 
 	render: function() {
-		var luci_form = L.require('form');
-		var luci_fs = L.require('fs');
-
-		return Promise.all([luci_form, luci_fs]).then(L.bind(function(modules) {
-			var form = modules;
-			var fs = modules;
+		// 修正點：使用 Promise.all 確保模組加載後，精確提取對象
+		return Promise.all([
+			L.resolveDefault(L.require('form'), {}),
+			L.resolveDefault(L.require('fs'), {}),
+			L.resolveDefault(L.require('uci'), {})
+		]).then(L.bind(function(modules) {
+			var form = modules[0]; // 顯式指定索引
+			var fs = modules[1];
+			var uci = modules[2];
 			var m, s, o;
 
 			m = new form.Map('sing-box', _('Sing-box Bridge'), _('SING-BOX 服務管理'));
 
-			// --- 1. 服務狀態 ---
+			// --- 1. 服務狀態區域 ---
 			s = m.section(form.TypedSection, '_status', _('服務狀態'));
 			s.anonymous = true;
 			s.render = L.bind(function() {
@@ -64,9 +68,10 @@ return L.view.extend({
 			s = m.section(form.NamedSection, 'main', 'singbox', _('基礎設置'));
 			o = s.option(form.Value, 'confdir', _('配置文件所在目錄'));
 			o.default = '/etc/sing-box';
+			o.rmempty = false;
 
-			// --- 3. 自動發現列表 (動態渲染) ---
-			s = m.section(form.TypedSection, '_list', _('配置檔案列表'));
+			// --- 3. 自動發現列表 (動態掃描目錄下的 JSON 檔案) ---
+			s = m.section(form.TypedSection, '_list', _('可用配置檔案'));
 			s.anonymous = true;
 			s.render = L.bind(function() {
 				var confdir = uci.get('sing-box', 'main', 'confdir') || '/etc/sing-box';
@@ -80,6 +85,7 @@ return L.view.extend({
 					]);
 
 					files.forEach(L.bind(function(file) {
+						// 過濾出 JSON 檔案，且排除掉正在使用的目標檔案
 						if (file.name.endsWith('.json') && file.name !== 'config.json') {
 							table.appendChild(E('tr', { 'class': 'tr' }, [
 								E('td', { 'class': 'td' }, file.name),
@@ -95,7 +101,7 @@ return L.view.extend({
 
 					return table;
 				}, this)).catch(function() {
-					return E('div', { 'class': 'alert-message warning' }, _('無法讀取目錄，請確認路徑正確且權限開啟。'));
+					return E('div', { 'class': 'alert-message warning' }, _('無法讀取目錄，請確認路徑正確。'));
 				});
 			}, this);
 
