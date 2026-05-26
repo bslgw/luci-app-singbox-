@@ -13,17 +13,37 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Build IPK
-        uses: immortalwrt/gh-action-sdk@master
-        env:
-          # 修正標籤名稱：將 x86_64 改為 x86-64
-          ARCH: x86-64-openwrt-22.03
-          FEEDNAME: custom
-          PACKAGES: luci-app-singbox
-          INDEX: 1
+      - name: Setup Compilation Environment
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential ccache gettext libncurses5-dev libssl-dev xz-utils zlib1g-dev
+
+      - name: Download Official OpenWrt SDK
+        run: |
+          # 下載 OpenWrt 22.03.0 x86_64 官方 SDK
+          wget https://openwrt.org
+          tar xf openwrt-sdk-*.tar.xz
+          mv openwrt-sdk-* sdk
+
+      - name: Prepare Package
+        run: |
+          cd sdk
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
+          # 將你的原始碼連結到 SDK 的 package 目錄
+          ln -s ../ package/luci-app-singbox
+
+      - name: Compile IPK
+        run: |
+          cd sdk
+          # 預先配置並僅編譯你的包
+          make defconfig
+          make package/luci-app-singbox/compile V=s
 
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
           name: luci-app-singbox-ipk
-          path: bin/packages/*/custom/luci-app-singbox*.ipk
+          path: sdk/bin/packages/*/custom/luci-app-singbox*.ipk
+          # 如果路徑有變，也可以用這個更通用的路徑
+          # path: sdk/bin/packages/**/*.ipk
