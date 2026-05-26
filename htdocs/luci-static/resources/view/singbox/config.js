@@ -1,81 +1,43 @@
-'use strict';
-'import ui';
-'import view';
-'import form';
-'import fs';
-'import poll';
+// 在 GridSection 中定義節點列表
+s = m.section(form.GridSection, 'node', _('節點管理'));
 
-return view.extend({
-    // 取得 sing-box 運行狀態的函式
-    renderStatus: function(isRunning) {
-        var span = E('span', { 'class': 'label' });
-        if (isRunning) {
-            span.style.background = '#46a546';
-            span.textContent = _('Running');
-        } else {
-            span.style.background = '#ccc';
-            span.textContent = _('Not Running');
-        }
-        return E('div', { 'class': 'cbi-value' }, [
-            E('label', { 'class': 'cbi-value-title' }, _('Service Status')),
-            E('div', { 'class': 'cbi-value-field' }, span)
-        ]);
-    },
+// ... 其他欄位 (名稱, 協議等) ...
 
-    render: function() {
-        var m, s, o;
-
-        m = new form.Map('singbox', _('Sing-box Manager'), _('輕量級的 sing-box 管理界面'));
-
-        // 狀態顯示區域
-        s = m.section(form.TypedSection, '_status');
-        s.anonymous = true;
-        s.render = L.bind(function() {
-            var node = E('div', { 'id': 'singbox_status_bar' }, _('Checking...'));
-            
-            // 每 5 秒輪詢狀態
-            poll.add(L.bind(function() {
-                return fs.exec('/usr/bin/pgrep', ['sing-box']).then(function(res) {
-                    var isRunning = (res.code === 0);
-                    var bar = document.getElementById('singbox_status_bar');
-                    if (bar) {
-                        bar.innerHTML = '';
-                        bar.appendChild(this.renderStatus(isRunning));
-                    }
-                }.bind(this));
-            }, this), 5);
-
-            return node;
-        }, this);
-
-        // 基本設置
-        s = m.section(form.NamedSection, 'main', 'singbox', _('General Settings'));
-        s.addremove = false;
-
-        o = s.option(form.Flag, 'enabled', _('Enable'), _('啟動服務'));
-        o.rmempty = false;
-
-        o = s.option(form.Value, 'conffile', _('Config Path'), _('設定檔 JSON 路徑'));
-        o.placeholder = '/etc/sing-box/config.json';
-        o.datatype = 'file';
-
-        // 訂閱功能按鈕
-        o = s.option(form.Value, 'sub_url', _('Subscription URL'), _('輸入訂閱鏈接以更新設定'));
+// 修改連通性顯示欄位
+o = s.option(form.DummyValue, '_status', _('服務器狀態'));
+o.modalonly = false;
+o.render = function(section_id) {
+    // 獲取該節點的 server 地址 (從 UCI 中讀取)
+    var server_addr = uci.get('singbox', section_id, 'server');
+    
+    // 建立一個帶有 ID 的容器，方便後續更新
+    var status_id = 'status_' + section_id;
+    var status_el = E('span', { 'id': status_id, 'class': 'label' }, _('Checking...'));
+    
+    // 定義檢查連線的邏輯
+    var check_status = function() {
+        if (!server_addr) return;
         
-        // 設定檔編輯器
-        s = m.section(form.TypedSection, 'config_editor', _('Config Editor'));
-        s.anonymous = true;
-        
-        o = s.option(form.TextValue, '_data', _('JSON Content'));
-        o.rows = 20;
-        o.wrap = 'off';
-        o.cfgvalue = function(section_id) {
-            return fs.read('/etc/sing-box/config.json').catch(function(e) { return ""; });
-        };
-        o.write = function(section_id, value) {
-            return fs.write('/etc/sing-box/config.json', value.replace(/\r\n/g, '\n'));
-        };
+        // 使用 nc (netcat) 測試 TCP 端口連通性，或使用 ping
+        // 這裡建議用 fs.exec 執行一個簡單的 ping 測試
+        fs.exec('/bin/ping', ['-c', '1', '-W', '1', server_addr]).then(function(res) {
+            var el = document.getElementById(status_id);
+            if (el) {
+                if (res.code === 0) {
+                    el.textContent = _('Online');
+                    el.style.background = '#46a546'; // 綠色
+                    el.style.color = '#fff';
+                } else {
+                    el.textContent = _('Offline');
+                    el.style.background = '#d9534f'; // 紅色
+                    el.style.color = '#fff';
+                }
+            }
+        });
+    };
 
-        return m.render();
-    }
-});
+    // 每 10 秒自動檢查一次
+    poll.add(check_status, 10);
+    
+    return status_el;
+};
