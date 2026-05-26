@@ -1,0 +1,9 @@
+{
+	"admin/services/singbox": {
+		"title": "Sing-box Bridge",
+		"action": {
+			"type": "view",
+			"path": "singbox/config"
+		}
+	}
+}
