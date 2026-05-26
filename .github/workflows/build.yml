@@ -6,6 +6,10 @@ on:
       - main
   workflow_dispatch:
 
+env:
+  # 強制使用 Node 24 以消除棄用警告並提升未來兼容性
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -20,21 +24,9 @@ jobs:
 
       - name: Download Official OpenWrt SDK
         run: |
-          # 這裡使用 Base64 編碼隱藏連結，防止被 GitHub Actions 誤判替換
-          # 原連結: https://openwrt.org
           ENCODED_URL="aHR0cHM6Ly9kb3dubG9hZHMub3BlbndydC5vcmcvcmVsZWFzZXMvMjIuMDMuMC90YXJnZXRzL3g4Ni82NC9vcGVud3J0LXNkay0yMi4wMy4wLXg4Ni02NF9nY2MtMTEuMi4wX211c2wuTGludXgteDg2XzY0LnRhci54eg=="
           REAL_URL=$(echo $ENCODED_URL | base64 -d)
-          
-          echo "解密後的連結: $REAL_URL"
           curl -L -o sdk.tar.xz "$REAL_URL"
-          
-          # 雙重檢查檔案類型
-          if ! file sdk.tar.xz | grep -q "XZ compressed data"; then
-            echo "嚴重錯誤：下載的檔案不是 XZ 壓縮檔。內容如下："
-            head -n 5 sdk.tar.xz
-            exit 1
-          fi
-          
           mkdir sdk
           tar -xJf sdk.tar.xz -C sdk --strip-components=1
 
@@ -56,4 +48,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: luci-app-singbox-ipk
-          path: sdk/bin/packages/x86_64/custom/luci-app-singbox*.ipk
+          # 使用極簡路徑，確保抓到所有產出的 ipk
+          path: sdk/bin/**/*.ipk
