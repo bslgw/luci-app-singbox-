@@ -16,12 +16,25 @@ jobs:
       - name: Setup Compilation Environment
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential ccache gettext libncurses5-dev libssl-dev xz-utils zlib1g-dev python3 rsync gawk file wget
+          sudo apt-get install -y build-essential ccache gettext libncurses5-dev libssl-dev xz-utils zlib1g-dev python3 rsync gawk file wget curl
 
       - name: Download Official OpenWrt SDK
         run: |
-          SDK_URL="https://openwrt.org"
-          curl -L -o sdk.tar.xz "$SDK_URL"
+          # 這裡使用 Base64 編碼隱藏連結，防止被 GitHub Actions 誤判替換
+          # 原連結: https://openwrt.org
+          ENCODED_URL="aHR0cHM6Ly9kb3dubG9hZHMub3BlbndydC5vcmcvcmVsZWFzZXMvMjIuMDMuMC90YXJnZXRzL3g4Ni82NC9vcGVud3J0LXNkay0yMi4wMy4wLXg4Ni02NF9nY2MtMTEuMi4wX211c2wuTGludXgteDg2XzY0LnRhci54eg=="
+          REAL_URL=$(echo $ENCODED_URL | base64 -d)
+          
+          echo "解密後的連結: $REAL_URL"
+          curl -L -o sdk.tar.xz "$REAL_URL"
+          
+          # 雙重檢查檔案類型
+          if ! file sdk.tar.xz | grep -q "XZ compressed data"; then
+            echo "嚴重錯誤：下載的檔案不是 XZ 壓縮檔。內容如下："
+            head -n 5 sdk.tar.xz
+            exit 1
+          fi
+          
           mkdir sdk
           tar -xJf sdk.tar.xz -C sdk --strip-components=1
 
@@ -30,7 +43,6 @@ jobs:
           cd sdk
           ./scripts/feeds update -a
           ./scripts/feeds install -a
-          # 建立 package 目錄，並確保原始碼完整複製
           mkdir -p package/luci-app-singbox
           cp -r ../Makefile ../htdocs ../root package/luci-app-singbox/
 
@@ -38,12 +50,10 @@ jobs:
         run: |
           cd sdk
           make defconfig
-          # 使用 -j1 進行單執行緒編譯，方便出錯時排查日誌
-          make package/luci-app-singbox/compile V=s -j1
+          make package/luci-app-singbox/compile V=s
 
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
           name: luci-app-singbox-ipk
-          # 修改為通配符，搜索整個 bin 目錄下所有的 .ipk 檔案
-          path: sdk/bin/**/*.ipk
+          path: sdk/bin/packages/x86_64/custom/luci-app-singbox*.ipk
