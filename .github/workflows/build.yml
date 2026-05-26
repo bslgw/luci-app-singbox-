@@ -1,36 +1,28 @@
-name: Build Sing-box IPK
+name: Build Sing-box Bridge IPK
 
-on: [push]
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
+      - name: Checkout Code
         uses: actions/checkout@v3
 
-      - name: Initialization environment
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential ccache gettext libncurses5-dev libssl-dev xz-utils zlib1g-dev
+      - name: Build IPK
+        uses: immortalwrt/gh-action-sdk@master
+        env:
+          ARCH: x86_64-openwrt-22.03
+          FEEDNAME: custom
+          PACKAGES: luci-app-singbox
+          INDEX: 1
 
-      - name: Download SDK
-        run: |
-          # 這裡以下載 OpenWrt 22.03 x86_64 SDK 為例
-          wget https://openwrt.org
-          tar xf openwrt-sdk-*.tar.xz
-          mv openwrt-sdk-* sdk
-
-      - name: Build Package
-        run: |
-          cd sdk
-          ./scripts/feeds update -a
-          ./scripts/feeds install -a
-          ln -s ../../luci-app-singbox package/luci-app-singbox
-          make package/luci-app-singbox/compile V=s
-
-      - name: Upload Artifact
+      - name: Upload Artifacts
         uses: actions/upload-artifact@v3
         with:
           name: luci-app-singbox-ipk
-          path: sdk/bin/packages/*/base/luci-app-singbox*.ipk
+          path: bin/packages/*/custom/luci-app-singbox*.ipk
