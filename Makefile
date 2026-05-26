@@ -1,31 +1,34 @@
-include $(TOPDIR)/rules.mk
+name: Build Sing-box Bridge IPK
 
-PKG_NAME:=luci-app-singbox
-PKG_VERSION:=1.0.0
-PKG_RELEASE:=1
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
 
-include $(INCLUDE_DIR)/package.mk
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
 
-define Package/luci-app-singbox
-  SECTION:=luci
-  CATEGORY:=LuCI
-  SUBMENU:=3. Applications
-  TITLE:=LuCI Support for Sing-box
-  # 強制依賴：安裝此 ipk 時，opkg 會自動嘗試下載並安裝以下包
-  DEPENDS:=+luci-base +sing-box +jq +bash +coreutils-base64
-  PKGARCH:=all
-endef
+      - name: Build IPK
+        uses: immortalwrt/gh-action-sdk@master
+        env:
+          ARCH: x86_64-openwrt-22.03  # 如果你的目標是其他架構（如 arm），可以在此修改
+          FEEDNAME: custom
+          PACKAGES: luci-app-singbox
+          NO_REFRESH_CHECK: true
 
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: luci-app-singbox-ipk
+          path: bin/packages/*/custom/luci-app-singbox*.ipk
 
-define Build/Compile
-endef
-
-define Package/luci-app-singbox/install
-	$(INSTALL_DIR) $(1)/usr/share/luci/menu.d
-	$(INSTALL_DATA) ./root/usr/share/luci/menu.d/luci-app-singbox.json $(1)/usr/share/luci/menu.d/luci-app-singbox.json
-
-	$(INSTALL_DIR) $(1)/www/luci-static/resources/view/singbox
-	$(INSTALL_DATA) ./htdocs/luci-static/resources/view/singbox/config.js $(1)/www/luci-static/resources/view/singbox/config.js
-endef
-
-$(eval $(call BuildPackage,luci-app-singbox))
+      - name: Release IPK
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v1
+        with:
+          files: bin/packages/*/custom/luci-app-singbox*.ipk
