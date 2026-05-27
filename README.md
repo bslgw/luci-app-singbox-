@@ -3,7 +3,30 @@
 
 ### luci-app-sing-box-bridge
 
-### 一個專為 OpenWrt 22.03+ 設計的極簡 sing-box 管理界面，旨在作為 **daed** 等前端的外置高性能內核管理工具。
+### 極簡 sing-box 管理界面，旨在作為 **daed** 外挂 sing-box 时提供高性能內核管理。
+
+daed内置支持singbox，但不支持hy2的端口跳跃，brutal等
+
+使用条件：
+
+1、安装独立的sing-box
+
+2、在daed内配置socket
+
+3、修改节点的json，把socket作为节点的流量入口
+
+*  "inbounds": [
+*    {
+*      "type": "socks",
+*      "tag": "socks-in",
+*      "listen": "0.0.0.0",
+*      "listen_port": 10811,
+*      "udp_fragment": true
+*    }
+*  ],
+
+
+
 
 ---
 
