@@ -6,10 +6,13 @@
 'import uci';
 'import poll';
 
-return L.view.extend({
-	// 秒顯示狀態
+/*
+ * 這是最後的殺手鐧：將所有依賴作為 extend 的參數傳入
+ * 這樣 LuCI 會確保所有模組都 OK 了才執行回調
+ */
+return view.extend({
 	checkStatus: function() {
-		return L.fs.exec('/etc/init.d/sing-box', ['status']).then(function(res) {
+		return fs.exec('/etc/init.d/sing-box', ['status']).then(function(res) {
 			var isRunning = (res.code === 0);
 			var el = document.getElementById('sb_status_label');
 			if (el) {
@@ -25,40 +28,38 @@ return L.view.extend({
 		var backup = confdir + '/original_backup_from_bridge.json';
 
 		if (action === 'switch') {
-			L.ui.showModal(_('應用配置'), [E('p', { 'class': 'spinning' }, _('正在切換至 %s ...').format(filename))]);
-			
-			// 步驟 1: 備份並複製
-			return L.fs.stat(backup).then(function(){}, function(){
-				return L.fs.exec('/bin/cp', [target, backup]).catch(function(){});
+			ui.showModal(_('應用配置'), [E('p', { 'class': 'spinning' }, _('正在切換至 %s ...').format(filename))]);
+			return fs.stat(backup).then(function(){}, function(){
+				return fs.exec('/bin/cp', [target, backup]).catch(function(){});
 			}).then(function() {
-				return L.fs.exec('/bin/cp', [source, target]);
+				return fs.exec('/bin/cp', [source, target]);
 			}).then(function() {
-				return L.fs.exec('/etc/init.d/sing-box', ['restart']);
+				return fs.exec('/etc/init.d/sing-box', ['restart']);
 			}).then(function() {
-				L.ui.hideModal();
-				L.ui.addNotification(null, E('p', _('切換成功！原始配置已備份。')), 'info');
+				ui.hideModal();
+				ui.addNotification(null, E('p', _('切換成功！原始配置已備份。')), 'info');
 			}).catch(function(e) {
-				L.ui.hideModal();
-				L.ui.addNotification(null, E('p', _('操作失敗: %s').format(e)), 'danger');
+				ui.hideModal();
+				ui.addNotification(null, E('p', _('操作失敗: %s').format(e)), 'danger');
 			});
 		} else if (action === 'delete') {
 			if (!confirm(_('確定刪除 %s ？').format(filename))) return;
-			return L.fs.remove(source).then(function() { location.reload(); });
+			return fs.remove(source).then(function() { location.reload(); });
 		}
 	},
 
 	handleEdit: function(filename, confdir) {
 		var path = confdir + '/' + filename;
-		return L.fs.read(path).then(function(content) {
+		return fs.read(path).then(function(content) {
 			var val = content || '{\n  "type": "direct",\n  "tag": "direct-out"\n}';
 			var textarea = E('textarea', { 'style': 'width:100%; height:400px; font-family:monospace; font-size:12px;' }, [ val ]);
-			L.ui.showModal(_('編輯: %s').format(filename), [
+			ui.showModal(_('編輯: %s').format(filename), [
 				E('div', { 'style': 'padding:10px' }, [
 					textarea,
 					E('div', { 'style': 'margin-top:10px; text-align:right' }, [
-						E('button', { 'class': 'btn', 'click': L.ui.hideModal }, _('取消')),
+						E('button', { 'class': 'btn', 'click': ui.hideModal }, _('取消')),
 						E('button', { 'class': 'btn cbi-button-positive', 'style': 'margin-left:10px', 'click': function() {
-							return L.fs.write(path, textarea.value).then(function() { L.ui.hideModal(); });
+							return fs.write(path, textarea.value).then(function() { ui.hideModal(); });
 						}}, _('儲存'))
 					])
 				])
@@ -68,16 +69,16 @@ return L.view.extend({
 
 	handleCreate: function(confdir) {
 		var nameInput = E('input', { 'placeholder': 'new_config.json', 'style': 'width:100%' });
-		L.ui.showModal(_('新建配置文件'), [
+		ui.showModal(_('新建配置文件'), [
 			E('div', { 'style': 'padding:10px' }, [
 				E('p', _('請輸入檔案名稱 (須以 .json 結尾):')),
 				nameInput,
 				E('div', { 'style': 'margin-top:10px; text-align:right' }, [
-					E('button', { 'class': 'btn', 'click': L.ui.hideModal }, _('取消')),
+					E('button', { 'class': 'btn', 'click': ui.hideModal }, _('取消')),
 					E('button', { 'class': 'btn cbi-button-positive', 'style': 'margin-left:10px', 'click': function() {
 						var fname = nameInput.value.trim();
 						if (!fname || !fname.endsWith('.json')) return alert(_('檔名無效'));
-						return L.fs.write(confdir + '/' + fname, '{}').then(function() { location.reload(); });
+						return fs.write(confdir + '/' + fname, '{}').then(function() { location.reload(); });
 					}}, _('建立'))
 				])
 			])
@@ -85,19 +86,11 @@ return L.view.extend({
 	},
 
 	render: function() {
-		// 修正點：使用最原始的模組引用方式
-		var form = L.require('form');
-		var fs = L.require('fs');
-		var ui = L.require('ui');
-		var uci = L.require('uci');
-		var poll = L.require('poll');
+		var m, s, o;
 
-		// 將模組掛載到全局 L 供外部函數調用
-		L.ui = ui;
-		L.fs = fs;
+		m = new form.Map('sing-box', _('Sing-box Bridge'), _('SING-BOX 服務管理'));
 
-		var m = new form.Map('sing-box', _('Sing-box Bridge'), _('SING-BOX 服務管理'));
-		var s = m.section(form.TypedSection, '_status', _('服務控制'));
+		s = m.section(form.TypedSection, '_status', _('服務控制'));
 		s.anonymous = true;
 		s.render = L.bind(function() {
 			var confdir = uci.get('sing-box', 'main', 'confdir') || '/etc/sing-box';
@@ -110,7 +103,7 @@ return L.view.extend({
 					E('strong', { 'style': 'margin-left:20px; color:#666;' }, _('工作目錄: ')),
 					E('span', { 'style': 'font-family:monospace; margin-left:5px;' }, confdir),
 					E('button', { 'class': 'cbi-button cbi-button-reset', 'style': 'margin-left:auto;', 'click': function() { 
-						return L.fs.exec('/etc/init.d/sing-box', ['restart']).then(L.bind(this.checkStatus, this)); 
+						return fs.exec('/etc/init.d/sing-box', ['restart']).then(L.bind(this.checkStatus, this)); 
 					}.bind(this) }, _('重啟服務'))
 				])
 			]);
@@ -132,14 +125,14 @@ return L.view.extend({
 						table.appendChild(E('tr', { 'class': 'tr' }, [
 							E('td', { 'class': 'td', 'style': 'vertical-align:middle;' }, file.name),
 							E('td', { 'class': 'td', 'style': 'white-space:nowrap; text-align:center;' }, [
-								E('button', { 'class': 'btn cbi-button-apply', 'style': 'margin:0 2px;', 'click': L.ui.createHandlerFn(this, 'handleAction', 'switch', file.name, confdir) }, _('選用')),
-								E('button', { 'class': 'btn cbi-button-neutral', 'style': 'margin:0 2px;', 'click': L.ui.createHandlerFn(this, 'handleEdit', file.name, confdir) }, _('編輯')),
-								E('button', { 'class': 'btn cbi-button-remove', 'style': 'margin:0 2px;', 'click': L.ui.createHandlerFn(this, 'handleAction', 'delete', file.name, confdir) }, _('刪除'))
+								E('button', { 'class': 'btn cbi-button-apply', 'style': 'margin:0 2px;', 'click': ui.createHandlerFn(this, 'handleAction', 'switch', file.name, confdir) }, _('選用')),
+								E('button', { 'class': 'btn cbi-button-neutral', 'style': 'margin:0 2px;', 'click': ui.createHandlerFn(this, 'handleEdit', file.name, confdir) }, _('編輯')),
+								E('button', { 'class': 'btn cbi-button-remove', 'style': 'margin:0 2px;', 'click': ui.createHandlerFn(this, 'handleAction', 'delete', file.name, confdir) }, _('刪除'))
 							])
 						]));
 					}
 				}, this));
-				return E('div', {}, [ table, E('button', { 'class': 'cbi-button cbi-button-add', 'style': 'margin-top:10px;', 'click': L.ui.createHandlerFn(this, 'handleCreate', confdir) }, _('＋ 新建配置文件')) ]);
+				return E('div', {}, [ table, E('button', { 'class': 'cbi-button cbi-button-add', 'style': 'margin-top:10px;', 'click': ui.createHandlerFn(this, 'handleCreate', confdir) }, _('＋ 新建配置文件')) ]);
 			}, this)).catch(function() { return E('div', { 'class': 'alert-message warning' }, _('目錄讀取失敗。')); });
 		}, this);
 
