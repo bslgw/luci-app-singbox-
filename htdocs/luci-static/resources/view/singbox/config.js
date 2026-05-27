@@ -84,7 +84,6 @@ return L.view.extend({
 			return L.fs.write(confdir + '/config.json', c || '{}');
 		}).then(L.bind(this.doRestart, this)).then(L.bind(function() {
 			window.localStorage.setItem('sb_selected_conf', filename);
-			
 			// 局部更新表格列，不刷新整個頁面 (邏輯 2)
 			var rows = document.querySelectorAll('tr[data-filename]');
 			rows.forEach(function(row) {
@@ -96,62 +95,4 @@ return L.view.extend({
 			});
 			btn.disabled = false;
 			// 關鍵：選用後不清除快取，後台 5 秒後會自動靜默更新聯網狀態
-		}, this)).catch(function(e) { 
-			btn.disabled = false; btn.textContent = _('選用');
-			alert(e.message); 
-		});
-	},
-
-	render: function(data) {
-		var isRunning = data;
-		var confdir = L.uci.get('sing-box', 'main', 'confdir') || '/etc/sing-box';
-		var selectedConf = window.localStorage.getItem('sb_selected_conf');
-
-		var m = new L.form.Map('sing-box', _('Sing-box Bridge'), _('SING-BOX 服務管理'));
-		var s = m.section(L.form.TypedSection, '_status', _('服務控制'));
-		s.anonymous = true;
-
-		s.render = L.bind(function() {
-			// 定時器邏輯
-			if (this.statusTimer) window.clearInterval(this.statusTimer);
-			this.statusTimer = window.setInterval(L.bind(this.checkStatus, this), 5000);
-
-			var cached = this.getCache();
-			var labelText = '', labelBg = 'transparent';
-
-			// 邏輯 1：如果有聯網狀態，就直接顯示，不要主動檢測
-			if (cached === 'online') {
-				labelText = _('聯網正常'); labelBg = '#46a546';
-			} else if (cached === 'offline') {
-				labelText = _('連接受阻'); labelBg = '#dc3545';
-			} else {
-				// 邏輯 1：狀態為空時（首次進入），顯示檢測中並觸發強制檢測
-				labelText = _('檢測中...'); labelBg = '#ffc107';
-				setTimeout(L.bind(this.checkNetwork, this, true), 100);
-			}
-
-			return E('div', { 'class': 'cbi-value', 'style': 'display:flex; align-items:center; border-bottom:1px solid #eee; padding-bottom:10px;' }, [
-				E('label', { 'class': 'cbi-value-title', 'style': 'width:15%' }, _('運行狀態')),
-				E('div', { 'class': 'cbi-value-field', 'style': 'width:85%; display:flex; align-items:center;' }, [
-					E('span', { 'id': 'sb_status_label', 'class': 'label', 'style': 'color:#fff; padding:4px 8px; border-radius:3px; background:' + (isRunning ? '#46a546' : '#999') + ';' }, isRunning ? _('運行中') : _('已停止')),
-					E('span', { 'id': 'sb_net_label', 'class': 'label', 'style': 'color:#fff; padding:4px 8px; border-radius:3px; margin-left:10px; background:' + labelBg + ';' }, labelText),
-					// 邏輯 3：只有點擊重啟服務，才主動檢查
-					E('button', { 'class': 'cbi-button cbi-button-reset', 'style': 'margin-left:auto;', 'click': L.bind(function(ev) {
-						ev.target.textContent = _('正在重啟...');
-						window.sessionStorage.removeItem('sb_net_cache'); // 核心：清空快取，確保觸發「檢測中」
-						return this.doRestart().then(L.bind(function(){
-							ev.target.textContent = _('重啟服務');
-							setTimeout(L.bind(this.checkNetwork, this, true), 2000);
-						}, this));
-					}, this) }, _('重啟服務')),
-					// 需求 1：將「新建配置」按鈕移動至右上角，緊跟在重啟服務按鈕後面
-					E('button', { 'class': 'cbi-button cbi-button-add', 'style': 'margin-left:10px;', 'click': function() { var name = prompt(_('新文件名:')); if(name) L.fs.write(confdir + '/' + (name.endsWith('.json') ? name : name + '.json'), '{}').then(function(){ location.reload(); }); }}, _('＋ 新建配置'))
-				])
-			]);
-		}, this);
-
-		// [列表部分代碼，確保 tr 包含 data-filename]
-		var s2 = m.section(L.form.TypedSection, '_list', _('可用配置文件'));
-		s2.render = L.bind(function() {
-			return L.fs.list(confdir).then(L.bind(function(files) {
-				var table = E('table', { 'class': 'table cbi-
+		}, this)).catch(function(e) {
