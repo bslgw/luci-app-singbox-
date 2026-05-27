@@ -20,11 +20,12 @@
 ```
 json"inbounds": [
     {
+      // start
       "type": "socks",
       "tag": "socks-in",
       "listen": "0.0.0.0",
       "listen_port": 10811
-      // 只替換上面這部分
+      // end
     }
   ]
 ```
