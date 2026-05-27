@@ -6,10 +6,12 @@
 'import uci';
 'import poll';
 
-return view.extend({
-	// 1. 狀態檢查 (使用 import 注入的 fs)
+/* 
+ * 核心修正：必須使用 L.view.extend
+ */
+return L.view.extend({
 	checkStatus: function() {
-		return fs.exec('/etc/init.d/sing-box', ['status']).then(function(res) {
+		return L.fs.exec('/etc/init.d/sing-box', ['status']).then(function(res) {
 			var isRunning = (res.code === 0);
 			var el = document.getElementById('sb_status_label');
 			if (el) {
@@ -19,12 +21,10 @@ return view.extend({
 		}).catch(function(){});
 	},
 
-	// 2. 解決重啟無效：改用執行 shell 指令強制重啟
 	doRestart: function() {
-		return fs.exec('/bin/sh', ['-c', '/etc/init.d/sing-box stop && /etc/init.d/sing-box start']);
+		return L.fs.exec('/bin/sh', ['-c', '/etc/init.d/sing-box stop && /etc/init.d/sing-box start']);
 	},
 
-	// 3. 解決切換權限：讀取內容再寫入，按鈕狀態回饋
 	handleSwitch: function(filename, confdir, ev) {
 		var target = confdir + '/config.json';
 		var source = confdir + '/' + filename;
@@ -33,8 +33,8 @@ return view.extend({
 		
 		btn.disabled = true; btn.textContent = _('正在應用...'); btn.style.background = '#ffc107';
 
-		return fs.read(source).then(function(content) {
-			return fs.write(target, content || '{}');
+		return L.fs.read(source).then(function(content) {
+			return L.fs.write(target, content || '{}');
 		}).then(L.bind(this.doRestart, this)).then(L.bind(function() {
 			btn.textContent = _('完成'); btn.style.background = '#28a745';
 			setTimeout(L.bind(function() { 
@@ -43,20 +43,22 @@ return view.extend({
 			}, this), 2000);
 		}, this)).catch(L.bind(function(e) {
 			btn.disabled = false; btn.textContent = oldText; btn.style.background = '';
-			ui.showModal(_('出錯'), [E('p', _('操作失敗: %s').format(e.message || e)), E('button', {'class':'btn','click':ui.hideModal},_('關閉'))]);
+			L.ui.showModal(_('出錯'), [E('p', _('操作失敗: %s').format(e.message || e)), E('button', {'class':'btn','click':L.ui.hideModal},_('關閉'))]);
 		}, this));
 	},
 
 	render: function() {
-		// 結構回歸：直接使用 import 注入的變數，不再宣告 var form/fs
-		var m = new form.Map('sing-box', _('Sing-box Bridge'), _('SING-BOX 服務管理'));
+		var m, s, o;
 
-		var s = m.section(form.TypedSection, '_status', _('服務控制'));
+		// 使用 L.form 確保構造函數正確
+		m = new L.form.Map('sing-box', _('Sing-box Bridge'), _('SING-BOX 服務管理'));
+
+		s = m.section(L.form.TypedSection, '_status', _('服務控制'));
 		s.anonymous = true;
 		s.render = L.bind(function() {
-			var confdir = uci.get('sing-box', 'main', 'confdir') || '/etc/sing-box';
+			var confdir = L.uci.get('sing-box', 'main', 'confdir') || '/etc/sing-box';
 			this.checkStatus();
-			poll.add(L.bind(this.checkStatus, this), 5);
+			L.poll.add(L.bind(this.checkStatus, this), 5);
 
 			return E('div', { 'class': 'cbi-value', 'style': 'display:flex; align-items:center; border-bottom:1px solid #eee; padding-bottom:10px;' }, [
 				E('label', { 'class': 'cbi-value-title', 'style': 'width:15%' }, _('運行狀態')),
@@ -74,11 +76,11 @@ return view.extend({
 			]);
 		}, this);
 
-		s = m.section(form.TypedSection, '_list', _('可用配置文件'));
+		s = m.section(L.form.TypedSection, '_list', _('可用配置文件'));
 		s.anonymous = true;
 		s.render = L.bind(function() {
-			var confdir = uci.get('sing-box', 'main', 'confdir') || '/etc/sing-box';
-			return fs.list(confdir).then(L.bind(function(files) {
+			var confdir = L.uci.get('sing-box', 'main', 'confdir') || '/etc/sing-box';
+			return L.fs.list(confdir).then(L.bind(function(files) {
 				var table = E('table', { 'class': 'table cbi-section-table' }, [
 					E('tr', { 'class': 'tr cbi-section-table-titles' }, [
 						E('th', { 'class': 'th' }, _('檔案名稱')),
@@ -93,19 +95,18 @@ return view.extend({
 							E('td', { 'class': 'td', 'style': 'white-space:nowrap; text-align:center;' }, [
 								E('button', { 'class': 'btn cbi-button-apply', 'style': 'margin:0 2px;', 'click': L.bind(this.handleSwitch, this, file.name, confdir) }, _('選用')),
 								E('button', { 'class': 'btn cbi-button-neutral', 'style': 'margin:0 2px;', 'click': function() {
-									// 讀取檔案，解決 0 字節 NoDataError 報錯
-									fs.read(confdir + '/' + file.name).catch(function(){ return ''; }).then(function(c) {
+									L.fs.read(confdir + '/' + file.name).catch(function(){ return ''; }).then(function(c) {
 										var ta = E('textarea', { 'style': 'width:100%; height:400px; font-family:monospace;' }, [ c || '{}' ]);
-										ui.showModal(_('編輯: %s').format(file.name), [ E('div', { 'style': 'padding:10px' }, [ ta, E('div', { 'class': 'right', 'style': 'margin-top:10px' }, [
-											E('button', { 'class': 'btn', 'click': ui.hideModal }, _('取消')),
+										L.ui.showModal(_('編輯: %s').format(file.name), [ E('div', { 'style': 'padding:10px' }, [ ta, E('div', { 'class': 'right', 'style': 'margin-top:10px' }, [
+											E('button', { 'class': 'btn', 'click': L.ui.hideModal }, _('取消')),
 											E('button', { 'class': 'btn cbi-button-positive', 'style': 'margin-left:10px', 'click': function() {
-												fs.write(confdir + '/' + file.name, ta.value).then(function() { ui.hideModal(); });
+												L.fs.write(confdir + '/' + file.name, ta.value).then(function() { L.ui.hideModal(); });
 											}}, _('儲存'))
 										]) ]) ]);
 									});
 								} }, _('編輯')),
 								E('button', { 'class': 'btn cbi-button-remove', 'style': 'margin:0 2px;', 'click': function() {
-									if (confirm(_('刪除 %s？').format(file.name))) fs.remove(confdir + '/' + file.name).then(function(){ location.reload(); });
+									if (confirm(_('刪除 %s？').format(file.name))) L.fs.remove(confdir + '/' + file.name).then(function(){ location.reload(); });
 								} }, _('刪除'))
 							])
 						]));
@@ -118,8 +119,7 @@ return view.extend({
 						var name = prompt(_('請輸入新檔名:'));
 						if (name) {
 							var fname = name.endsWith('.json') ? name : name + '.json';
-							// 解決新建沒反應：直接寫入並 reload
-							fs.write(confdir + '/' + fname, '{}').then(function() { location.reload(); }).catch(function(e){ alert(e); });
+							L.fs.write(confdir + '/' + fname, '{}').then(function() { location.reload(); }).catch(function(e){ alert(e); });
 						}
 					} }, _('＋ 新建配置')) 
 				]);
