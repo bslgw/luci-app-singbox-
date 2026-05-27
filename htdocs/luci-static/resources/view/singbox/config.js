@@ -4,12 +4,9 @@
 'import view';
 'import form';
 'import uci';
-'import poll';
 
-/* 
- * 核心修正：必須使用 L.view.extend
- */
 return L.view.extend({
+	// 使用原生 setInterval 替代 poll，徹底解決 L.poll.add 報錯
 	checkStatus: function() {
 		return L.fs.exec('/etc/init.d/sing-box', ['status']).then(function(res) {
 			var isRunning = (res.code === 0);
@@ -50,15 +47,18 @@ return L.view.extend({
 	render: function() {
 		var m, s, o;
 
-		// 使用 L.form 確保構造函數正確
 		m = new L.form.Map('sing-box', _('Sing-box Bridge'), _('SING-BOX 服務管理'));
 
 		s = m.section(L.form.TypedSection, '_status', _('服務控制'));
 		s.anonymous = true;
 		s.render = L.bind(function() {
 			var confdir = L.uci.get('sing-box', 'main', 'confdir') || '/etc/sing-box';
+			
+			// 立即執行第一次狀態檢查
 			this.checkStatus();
-			L.poll.add(L.bind(this.checkStatus, this), 5);
+			
+			// 使用 JS 原生定時器，每 5 秒刷新一次狀態標籤
+			window.setInterval(L.bind(this.checkStatus, this), 5000);
 
 			return E('div', { 'class': 'cbi-value', 'style': 'display:flex; align-items:center; border-bottom:1px solid #eee; padding-bottom:10px;' }, [
 				E('label', { 'class': 'cbi-value-title', 'style': 'width:15%' }, _('運行狀態')),
