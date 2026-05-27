@@ -124,23 +124,24 @@ return L.view.extend({
                     E('span', { 'id': 'sb_status_label', 'class': 'label', 'style': 'color:#fff; padding:4px 8px; border-radius:3px; background:' + (isRunning ? '#46a546' : '#999') + ';' }, isRunning ? _('運行中') : _('已停止')),
                     E('span', { 'id': 'sb_net_label', 'class': 'label', 'style': 'color:#fff; padding:4px 8px; border-radius:3px; margin-left:10px; background:' + labelBg + ';' }, labelText),
                     
-                    E('button', { 'class': 'cbi-button cbi-button-reset', 'style': 'margin-left:auto;', 'click': L.bind(function(ev) {
-                        ev.target.textContent = _('正在重啟...');
-                        window.sessionStorage.removeItem('sb_net_cache');
-                        return this.doRestart().then(L.bind(function(){
-                            ev.target.textContent = _('重啟服務');
-                            setTimeout(L.bind(this.checkNetwork, this, true), 2000);
-                        }, this));
-                    }, this) }, _('重啟服務')),
+                    // 重啟服務按鈕 (加入統一高度樣式)
+                    E('button', { 'class': 'cbi-button cbi-button-reset', 'style': 'margin-left:auto; display:inline-flex; align-items:center; height:32px; box-sizing:border-box;', 'click': L.bind(function(ev) {
+						ev.target.textContent = _('正在重啟...');
+						window.sessionStorage.removeItem('sb_net_cache');
+						return this.doRestart().then(L.bind(function(){
+							ev.target.textContent = _('重啟服務');
+							setTimeout(L.bind(this.checkNetwork, this, true), 2000);
+						}, this));
+					}, this) }, _('重啟服務')),
 
-                    // 需求 1：新建按鈕移動到此處
-                    E('button', { 'class': 'cbi-button cbi-button-add', 'style': 'margin-left:10px;', 'click': function() { 
+                    // 需求 1 & 优化需求：新建按鈕移動到此處，且高度與重啟服務按鈕完全一致
+                    E('button', { 'class': 'cbi-button cbi-button-add', 'style': 'margin-left:10px; display:inline-flex; align-items:center; height:32px; box-sizing:border-box;', 'click': function() { 
                         var name = prompt(_('新文件名:')); 
                         if(name) L.fs.write(confdir + '/' + (name.endsWith('.json') ? name : name + '.json'), '{}').then(function(){ location.reload(); }); 
                     }}, _('＋ 新建配置'))
                 ])
             ]);
-        }, this);
+		}, this);
 
         var s2 = m.section(L.form.TypedSection, '_list', _('可用配置文件'));
         s2.render = L.bind(function() {
@@ -168,7 +169,7 @@ return L.view.extend({
                                             E('button', { 'class': 'btn cbi-button-positive', 'click': function() { L.fs.write(confdir + '/' + file.name, ta.value).then(function() { L.ui.hideModal(); }); }}, _('儲存'))
                                         ]) ]) ]);
                                     });
-                                }, this) }, _('編輯')),
+								}, this) }, _('編輯')),
                                 E('button', { 'class': 'btn cbi-button-remove', 'style': 'margin-left:4px;', 'click': function(ev) { if (confirm(_('刪除？'))) L.fs.remove(confdir + '/' + file.name).then(function(){ ev.target.closest('tr').remove(); }); } }, _('刪除'))
                             ])
                         ]));
