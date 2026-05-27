@@ -129,3 +129,161 @@ return L.view.extend({
 
                     L.fs.read(confdir + '/' + file.name).then(function(content) {
                         if (!content) return;
+                        try {
+                            var json = JSON.parse(content);
+                            var servers = [];
+                            var types = [];
+                            
+                            if (json.outbounds && Array.isArray(json.outbounds)) {
+                                json.outbounds.forEach(function(out) {
+                                    if (out.server && typeof out.server === 'string' && out.server !== '127.0.0.1' && out.server !== '::1') {
+                                        servers.push(out.server);
+                                        if (out.type) types.push(out.type);
+                                    }
+                                });
+                            }
+                            
+                            if (types.length > 0) {
+                                var uniqueTypes = types.filter(function(v, i, a) { return a.indexOf(v) === i; });
+                                typeCell.textContent = uniqueTypes.join(', ');
+                            }
+                            
+                            if (servers.length > 0) {
+                                var uniqueServers = servers.filter(function(v, i, a) { return a.indexOf(v) === i; });
+                                infoCell.textContent = uniqueServers.join(', ');
+                            }
+                        } catch(e) {}
+                    });
+
+                    table.appendChild(E('tr', { 'class': 'tr', 'data-filename': file.name }, [
+                        E('td', { 'class': 'td check-cell', 'style': 'text-align:center; vertical-align:middle;' }, [ isSelected ? E('span', { 'style': 'color:#46a546; font-weight:bold;' }, '✔') : '' ]),
+                        E('td', { 'class': 'td name-cell', 'style': 'vertical-align:middle; ' + (isSelected ? 'font-weight:bold; color:#46a546;' : '') }, file.name),
+                        typeCell,
+                        infoCell,
+                        E('td', { 'class': 'td', 'style': 'text-align:center; vertical-align:middle; white-space:nowrap; width:260px;' }, [
+                            E('button', { 'class': 'btn cbi-button-apply', 'click': L.bind(this.handleSwitch, this, file.name, confdir) }, isSelected ? _('生效中') : _('選用')),
+                            E('button', { 'class': 'btn cbi-button-neutral', 'style': 'margin-left:4px;', 'click': L.bind(function() {
+                                L.fs.read(confdir + '/' + file.name).then(function(c) {
+                                    var ta = E('textarea', { 'style': 'width:100%; height:400px;' }, [ c || '{}' ]);
+                                    L.ui.showModal(_('編輯'), [ E('div', {}, [ ta, E('div', { 'class': 'right' }, [
+                                        E('button', { 'class': 'btn', 'click': L.ui.hideModal }, _('取消')),
+                                        E('button', { 'class': 'btn cbi-button-positive', 'click': function() { L.fs.write(confdir + '/' + file.name, ta.value).then(function() { L.ui.hideModal(); }); }}, _('儲存'))
+                                    ]) ]) ]);
+                                });
+                            }, this) }, _('編輯')),
+                            E('button', { 'class': 'btn cbi-button-remove', 'style': 'margin-left:4px;', 'click': L.bind(function(ev) { 
+                                if (confirm(_('刪除？'))) {
+                                    L.fs.remove(confdir + '/' + file.name).then(L.bind(function(){ 
+                                        ev.target.closest('tr').remove(); 
+                                    }, this)); 
+                                }
+                            }, this) }, _('刪除'))
+                        ])
+                    ]));
+                }
+            }, this));
+
+            container.innerHTML = '';
+            container.appendChild(table);
+        }, this));
+    },
+
+    render: function(data) {
+        var isRunning = data;
+        var confdir = L.uci.get('sing-box', 'main', 'confdir') || '/etc/sing-box';
+        var selectedConf = window.localStorage.getItem('sb_selected_conf');
+
+        var m = new L.form.Map('sing-box', _('Sing-box Bridge'), _('SING-BOX 服務管理'));
+        var s = m.section(L.form.TypedSection, '_status', _('服務控制'));
+        s.anonymous = true;
+
+        s.render = L.bind(function() {
+            if (this.statusTimer) window.clearInterval(this.statusTimer);
+            this.statusTimer = window.setInterval(L.bind(this.checkStatus, this), 5000);
+
+            var cached = this.getCache();
+            var labelText = '', labelBg = 'transparent';
+
+            if (cached === 'all_ok') { labelText = _('海內外暢通'); labelBg = '#46a546'; } 
+            else if (cached === 'cn_only') { labelText = _('僅國內連通'); labelBg = '#ffc107'; } 
+            else if (cached === 'global_only') { labelText = _('僅國外連通'); labelBg = '#6f42c1'; } 
+            else if (cached === 'offline') { labelText = _('網路已斷開'); labelBg = '#dc3545'; } 
+            else {
+                labelText = _('連通性測試中...'); labelBg = '#17a2b8';
+                setTimeout(L.bind(this.checkNetwork, this, true), 100);
+            }
+
+            return E('div', { 'class': 'cbi-value', 'style': 'display:flex; flex-direction:column; border-bottom:1px solid #eee; padding-bottom:10px;' }, [
+                
+                // 第一行：狀態標籤與操作按鈕
+                E('div', { 'style': 'display:flex; align-items:center; width:100%; margin-bottom:10px;' }, [
+                    E('label', { 'class': 'cbi-value-title', 'style': 'width:15%' }, _('運行狀態')),
+                    E('div', { 'class': 'cbi-value-field', 'style': 'width:85%; display:flex; align-items:center;' }, [
+                        E('span', { 'id': 'sb_status_label', 'class': 'label', 'style': 'color:#fff; padding:4px 8px; border-radius:3px; background:' + (isRunning ? '#46a546' : '#999') + ';' }, isRunning ? _('運行中') : _('已停止')),
+                        E('span', { 'id': 'sb_net_label', 'class': 'label', 'style': 'color:#fff; padding:4px 8px; border-radius:3px; margin-left:10px; background:' + labelBg + ';' }, labelText),
+                        
+                        E('button', { 'class': 'cbi-button', 'style': 'margin-left:auto; display:inline-flex; align-items:center; justify-content:center; padding:6px 20px; border-radius:100px; box-sizing:border-box; background:#46a546 !important; color:#fff !important; border:none;', 'click': L.bind(function(ev) {
+                            ev.target.textContent = _('正在重啟...');
+                            window.sessionStorage.removeItem('sb_net_cache');
+                            
+                            var sEl = document.getElementById('sb_status_label'); if(sEl) { sEl.textContent = _('運行中'); sEl.style.background = '#46a546'; }
+                            var nEl = document.getElementById('sb_net_label'); if(nEl) { nEl.textContent = _('連通性測試中...'); nEl.style.background = '#17a2b8'; }
+
+                            return this.doRestart().then(L.bind(function(){
+                                ev.target.textContent = _('重啟 sing-box');
+                                setTimeout(L.bind(this.checkStatus, this), 1000);
+                            }, this));
+                        }, this) }, _('重啟 sing-box')),
+
+                        E('button', { 'class': 'cbi-button', 'style': 'margin-left:10px; display:inline-flex; align-items:center; justify-content:center; padding:6px 20px; border-radius:100px; box-sizing:border-box; background:#999 !important; color:#fff !important; border:none;', 'click': L.bind(function(ev) {
+                            ev.target.textContent = _('正在停止...');
+                            window.sessionStorage.removeItem('sb_net_cache');
+                            
+                            var sEl = document.getElementById('sb_status_label'); if(sEl) { sEl.textContent = _('已停止'); sEl.style.background = '#999'; }
+                            var nEl = document.getElementById('sb_net_label'); if(nEl) { nEl.textContent = _('連通性測試中...'); nEl.style.background = '#17a2b8'; }
+
+                            return this.doStop().then(L.bind(function(){
+                                ev.target.textContent = _('停止 sing-box');
+                                setTimeout(L.bind(this.checkStatus, this), 600);
+                            }, this));
+                        }, this) }, _('停止 sing-box')),
+
+                        E('button', { 'class': 'cbi-button cbi-button-add', 'style': 'margin-left:10px; display:inline-flex; align-items:center; justify-content:center; padding:6px 20px; border-radius:100px; box-sizing:border-box;', 'click': L.bind(function() { 
+                            var name = prompt(_('新文件名:')); 
+                            if(name) {
+                                var filename = name.endsWith('.json') ? name : name + '.json';
+                                L.fs.write(confdir + '/' + filename, '{}').then(L.bind(function(){ 
+                                    var container = document.getElementById('sb_file_list_container');
+                                    if (container) {
+                                        this.renderList(container, confdir, window.localStorage.getItem('sb_selected_conf'));
+                                    }
+                                }, this));
+                            }
+                        }, this) }, _('＋ 新建配置'))
+                    ])
+                ]),
+                
+                // 第二行：狀態圖例 (Legend)
+                E('div', { 'style': 'display:flex; align-items:center; width:100%;' }, [
+                    E('div', { 'style': 'width:15%' }, ''), 
+                    E('div', { 'style': 'width:85%; display:flex; gap:16px; font-size:12px; color:#666; user-select:none;' }, [
+                        E('span', { 'style': 'display:flex; align-items:center; gap:4px;' }, [ E('span', { 'style': 'width:8px; height:8px; border-radius:50%; background:#46a546;' }), _('暢通') ]),
+                        E('span', { 'style': 'display:flex; align-items:center; gap:4px;' }, [ E('span', { 'style': 'width:8px; height:8px; border-radius:50%; background:#ffc107;' }), _('僅國內 (代理失效)') ]),
+                        E('span', { 'style': 'display:flex; align-items:center; gap:4px;' }, [ E('span', { 'style': 'width:8px; height:8px; border-radius:50%; background:#6f42c1;' }), _('僅國外 (路由異常)') ]),
+                        E('span', { 'style': 'display:flex; align-items:center; gap:4px;' }, [ E('span', { 'style': 'width:8px; height:8px; border-radius:50%; background:#dc3545;' }), _('斷網') ]),
+                        E('span', { 'style': 'display:flex; align-items:center; gap:4px;' }, [ E('span', { 'style': 'width:8px; height:8px; border-radius:50%; background:#17a2b8;' }), _('檢測中') ])
+                    ])
+                ])
+            ]);
+        }, this);
+
+        var s2 = m.section(L.form.TypedSection, '_list', _('可用配置文件'));
+        s2.render = L.bind(function() {
+            var container = E('div', { 'id': 'sb_file_list_container' });
+            this.renderList(container, confdir, selectedConf);
+            return container;
+        }, this);
+
+        return m.render();
+    }
+});
