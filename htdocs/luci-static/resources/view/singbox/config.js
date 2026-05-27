@@ -16,7 +16,7 @@ return L.view.extend({
     load: function() {
         return Promise.all([
             L.uci.load('sing-box'),
-            L.fs.exec('sh', ['-c', 'ps w | grep sing-box | grep -v grep']).then(function(res) {
+            L.fs.exec('/bin/sh', ['-c', 'ps w | grep sing-box | grep -v grep']).then(function(res) {
                 return (res.code === 0);
             }).catch(function() { return false; })
         ]);
@@ -32,15 +32,12 @@ return L.view.extend({
             netDot.style.background = '#17a2b8'; 
         }
 
-        // v7.1 纯 IP 降维打击：国内直接盲测公共主干网 IP，彻底绕过路由器本地 DNS 假死陷阱
-        var cmdCn = 'ping -c 1 -w 2 223.5.5.5 >/dev/null 2>&1 && exit 0; ' + 
-                    'ping -c 1 -w 2 114.114.114.114 >/dev/null 2>&1 && exit 0; ' + 
-                    'wget -4 -q --spider --timeout=2 http://www.baidu.com && exit 0; ' + 
-                    'exit 1';
+        // v7.3 修复 OpenWrt 底层兼容性：移除不支持的 -4 和 --spider 参数
+        // 纯净版 Ping (超时2秒) 或 纯净版 HTTP 获取 (静默并丢弃输出，超时2秒)
+        var cmdCn = '(ping -c 1 -W 2 223.5.5.5 >/dev/null 2>&1) || ' + 
+                    '(wget -q -O /dev/null -T 2 http://119.29.29.29/d?dn=baidu.com >/dev/null 2>&1) && exit 0; exit 1';
 
-        // 国外依旧走网页探测，节点挂了时解析失败或连接超时均代表国外不通，逻辑完美契合
-        var cmdGlobal = 'wget -4 -q --spider --timeout=2 http://www.google.com && exit 0; ' +
-                        'exit 1';
+        var cmdGlobal = '(wget -q -O /dev/null -T 2 http://www.google.com >/dev/null 2>&1) && exit 0; exit 1';
 
         var checkCn = L.fs.exec('/bin/sh', ['-c', cmdCn]).catch(function() { return { code: 1 }; });
         var checkGlobal = L.fs.exec('/bin/sh', ['-c', cmdGlobal]).catch(function() { return { code: 1 }; });
@@ -74,7 +71,7 @@ return L.view.extend({
     },
 
     checkStatus: function() {
-        return L.fs.exec('sh', ['-c', 'ps w | grep sing-box | grep -v grep']).then(L.bind(function(res) {
+        return L.fs.exec('/bin/sh', ['-c', 'ps w | grep sing-box | grep -v grep']).then(L.bind(function(res) {
             var isRunning = (res.code === 0);
             var sDot = document.getElementById('sb_status_dot');
             var sText = document.getElementById('sb_status_text');
@@ -98,9 +95,15 @@ return L.view.extend({
         var btn = ev.target;
         btn.disabled = true; btn.textContent = _('正在應用...');
 
-        return L.fs.read(confdir + '/' + filename).then(function(c) {
+        // 拆分 Promise 链，准确捕捉是哪一步报了错
+        L.fs.read(confdir + '/' + filename).then(L.bind(function(c) {
             return L.fs.write(confdir + '/config.json', c || '{}');
-        }).then(L.bind(this.doRestart, this)).then(L.bind(function() {
+        }, this)).then(L.bind(function() {
+            // 文件写入成功，尝试重启服务
+            return this.doRestart().catch(function(e) {
+                throw new Error(_('配置文件已寫入，但重啟 sing-box 服務失敗 (可能需要 ACL 權限)。'));
+            });
+        }, this)).then(L.bind(function() {
             window.localStorage.setItem('sb_selected_conf', filename);
             
             var rows = document.querySelectorAll('tr[data-filename]');
@@ -258,7 +261,10 @@ return L.view.extend({
                             return this.doRestart().then(L.bind(function(){
                                 ev.target.textContent = _('重啟 sing-box');
                                 setTimeout(L.bind(this.checkStatus, this), 1000);
-                            }, this));
+                            }, this)).catch(function(){
+                                ev.target.textContent = _('重啟 sing-box');
+                                alert(_('重啟失敗，可能是權限不足'));
+                            });
                         }, this) }, _('重啟 sing-box')),
 
                         E('button', { 'class': 'cbi-button', 'style': 'margin-left:10px; display:inline-flex; align-items:center; justify-content:center; padding:6px 20px; border-radius:100px; box-sizing:border-box; background:#999 !important; color:#fff !important; border:none;', 'click': L.bind(function(ev) {
@@ -273,7 +279,10 @@ return L.view.extend({
                             return this.doStop().then(L.bind(function(){
                                 ev.target.textContent = _('停止 sing-box');
                                 setTimeout(L.bind(this.checkStatus, this), 600);
-                            }, this));
+                            }, this)).catch(function(){
+                                ev.target.textContent = _('停止 sing-box');
+                                alert(_('停止失敗，可能是權限不足'));
+                            });
                         }, this) }, _('停止 sing-box')),
 
                         E('button', { 'class': 'cbi-button cbi-button-add', 'style': 'margin-left:10px; display:inline-flex; align-items:center; justify-content:center; padding:6px 20px; border-radius:100px; box-sizing:border-box;', 'click': L.bind(function() { 
@@ -285,7 +294,9 @@ return L.view.extend({
                                     if (container) {
                                         this.renderList(container, confdir, window.localStorage.getItem('sb_selected_conf'));
                                     }
-                                }, this));
+                                }, this)).catch(function(e) {
+                                    alert(_('創建失敗: ') + e.message);
+                                });
                             }
                         }, this) }, _('＋ 新建配置'))
                     ])
