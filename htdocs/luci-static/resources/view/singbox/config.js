@@ -23,29 +23,21 @@ return L.view.extend({
 		var source = confdir + '/' + filename;
 		var btn = ev.target;
 		var oldText = btn.textContent;
-		
-		btn.disabled = true;
-		btn.textContent = _('正在應用...');
-		btn.style.background = '#ffc107';
+		btn.disabled = true; btn.textContent = _('正在應用...'); btn.style.background = '#ffc107';
 
-		return L.fs.read(source).catch(function() { return '{}'; }).then(function(content) {
+		return L.fs.read(source).then(function(content) {
 			return L.fs.write(target, content || '{}');
 		}).then(function() {
 			return L.fs.exec('/etc/init.d/sing-box', ['restart']);
 		}).then(L.bind(function() {
-			btn.textContent = _('完成');
-			btn.style.background = '#28a745';
+			btn.textContent = _('完成'); btn.style.background = '#28a745';
 			setTimeout(L.bind(function() {
-				btn.disabled = false;
-				btn.textContent = oldText;
-				btn.style.background = '';
+				btn.disabled = false; btn.textContent = oldText; btn.style.background = '';
 				this.checkStatus();
 			}, this), 2000);
 		}, this)).catch(L.bind(function(e) {
-			btn.disabled = false;
-			btn.textContent = oldText;
-			btn.style.background = '';
-			L.ui.showModal(_('操作出錯'), [E('div', { 'class': 'alert-message danger' }, [E('p', e.message || e)]), E('button', {'class':'btn','click':L.ui.hideModal},_('關閉'))]);
+			btn.disabled = false; btn.textContent = oldText; btn.style.background = '';
+			L.ui.showModal(_('操作出錯'), [E('p', e.message || e), E('button', {'class':'btn','click':L.ui.hideModal},_('關閉'))]);
 		}, this));
 	},
 
@@ -69,7 +61,7 @@ return L.view.extend({
 	},
 
 	render: function() {
-		// 修正點：使用 L.resolveDefault 確保模組被正確解析為對象
+		// 直接從全局 L 中獲取已經 import 的模組，確保穩定性
 		return Promise.all([
 			L.resolveDefault(L.require('ui'), {}),
 			L.resolveDefault(L.require('fs'), {}),
@@ -77,17 +69,14 @@ return L.view.extend({
 			L.resolveDefault(L.require('uci'), {}),
 			L.resolveDefault(L.require('poll'), {})
 		]).then(L.bind(function(res) {
-			var ui_mod = res[0];
-			var fs_mod = res[1];
+			// 強制重新掛載 L.fs 確保所有地方都能用到最新的 fs 接口
+			L.ui = res[0];
+			L.fs = res[1];
 			var form_mod = res[2];
 			var uci_mod = res[3];
 			var poll_mod = res[4];
 
-			L.ui = ui_mod;
-			L.fs = fs_mod;
-
 			var m = new form_mod.Map('sing-box', _('Sing-box Bridge'), _('SING-BOX 服務管理'));
-			
 			var s = m.section(form_mod.TypedSection, '_status', _('服務控制'));
 			s.anonymous = true;
 			s.render = L.bind(function() {
@@ -114,19 +103,22 @@ return L.view.extend({
 			s.anonymous = true;
 			s.render = L.bind(function() {
 				var confdir = uci_mod.get('sing-box', 'main', 'confdir') || '/etc/sing-box';
-				return fs_mod.list(confdir).then(L.bind(function(files) {
+				// 修正點：直接調用 L.fs.list 確保權限與接口正確
+				return L.fs.list(confdir).then(L.bind(function(files) {
 					var table = E('table', { 'class': 'table cbi-section-table' }, [
 						E('tr', { 'class': 'tr cbi-section-table-titles' }, [
 							E('th', { 'class': 'th' }, _('檔案名稱')),
 							E('th', { 'class': 'th', 'style': 'width:240px; text-align:center;' }, _('操作'))
 						])
 					]);
+					var hasFile = false;
 					files.forEach(L.bind(function(file) {
 						if (file.name.endsWith('.json') && file.name !== 'config.json') {
+							hasFile = true;
 							table.appendChild(E('tr', { 'class': 'tr' }, [
 								E('td', { 'class': 'td', 'style': 'vertical-align:middle;' }, file.name),
 								E('td', { 'class': 'td', 'style': 'white-space:nowrap; text-align:center;' }, [
-									E('button', { 'class': 'btn cbi-button-apply', 'style': 'margin:0 2px;', 'click': L.bind(this.handleSwitch, this, file.name, confdir) }, _('選用')),
+									E('button', { 'class': 'btn cbi-button-apply', 'style': 'margin:0 2px;', 'click': L.bind(this.handleAction, this, file.name, confdir) }, _('選用')),
 									E('button', { 'class': 'btn cbi-button-neutral', 'style': 'margin:0 2px;', 'click': L.bind(this.handleEdit, this, file.name, confdir) }, _('編輯')),
 									E('button', { 'class': 'btn cbi-button-remove', 'style': 'margin:0 2px;', 'click': function() {
 										if (confirm(_('刪除 %s？').format(file.name))) L.fs.remove(confdir + '/' + file.name).then(function(){ location.reload() });
@@ -135,14 +127,13 @@ return L.view.extend({
 							]));
 						}
 					}, this));
-					return E('div', {}, [
-						table,
-						E('button', { 'class': 'cbi-button cbi-button-add', 'style': 'margin-top:10px;', 'click': function() {
-							var name = prompt(_('請輸入新檔名 (.json):'));
-							if (name && name.endsWith('.json')) L.fs.write(confdir + '/' + name, '{}').then(function(){ location.reload() });
-						} }, _('＋ 新建配置'))
-					]);
-				}, this)).catch(function() { return E('div', { 'class': 'alert-message warning' }, _('目錄讀取失敗。')); });
+					return hasFile ? E('div', {}, [ table, E('button', { 'class': 'cbi-button cbi-button-add', 'style': 'margin-top:10px;', 'click': function() {
+						var name = prompt(_('請輸入新檔名 (.json):'));
+						if (name && name.endsWith('.json')) L.fs.write(confdir + '/' + name, '{}').then(function(){ location.reload() });
+					} }, _('＋ 新建配置')) ]) : E('div', { 'class': 'alert-message info' }, _('目錄中沒有可選配置（不含 config.json）。'));
+				}, this)).catch(function(e) { 
+					return E('div', { 'class': 'alert-message warning' }, _('目錄讀取失敗：%s').format(e.message || e)); 
+				});
 			}, this);
 
 			return m.render();
