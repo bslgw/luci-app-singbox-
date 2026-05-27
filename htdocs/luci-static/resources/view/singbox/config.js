@@ -19,24 +19,24 @@ return L.view.extend({
 		]);
 	},
 
-	checkNetwork: function(isExplicit) {
+		checkNetwork: function(isExplicit) {
 		var netEl = document.getElementById('sb_net_label');
 		if (!netEl) return;
 
 		var cached = this.getCache();
 
-		// 邏輯 1 & 3：只有狀態為空（由重啟觸發）且是主動檢查時，才顯示「檢測中」
+		// 只有狀態為空且主動觸發時顯示檢測中
 		if (isExplicit && !cached) {
 			netEl.textContent = _('檢測中...');
 			netEl.style.background = '#ffc107';
 		}
 
-		// 補充需求：使用 Google 連結判斷狀態
-		return L.fs.exec('wget', ['-q', '--spider', '--timeout=2', 'http://google.com']).then(L.bind(function(res) {
+		// 使用 /bin/sh -c 包裹指令，解決 LuCI 環境執行差異問題
+		return L.fs.exec('/bin/sh', ['-c', 'wget -q --spider --timeout=2 http://google.com && exit 0 || exit 1']).then(L.bind(function(res) {
 			var isOnline = (res.code === 0);
 			var current = isOnline ? 'online' : 'offline';
 
-			// 邏輯 4：只有當出現與當前不同的聯網狀態才更新 UI (異步更新)
+			// 只有狀態變更才更新 UI
 			if (this.getCache() !== current) {
 				netEl.textContent = isOnline ? _('聯網正常') : _('連接受阻');
 				netEl.style.background = isOnline ? '#46a546' : '#dc3545';
@@ -50,6 +50,7 @@ return L.view.extend({
 			}
 		}, this));
 	},
+
 
 	checkStatus: function() {
 		L.fs.exec('sh', ['-c', 'ps w | grep sing-box | grep -v grep']).then(function(res) {
