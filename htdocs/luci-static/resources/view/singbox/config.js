@@ -69,6 +69,11 @@ return L.view.extend({
         return L.fs.exec('/etc/init.d/sing-box', ['restart']);
     },
 
+    // 执行停止服务命令
+    doStop: function() {
+        return L.fs.exec('/etc/init.d/sing-box', ['stop']);
+    },
+
     handleSwitch: function(filename, confdir, ev) {
         var btn = ev.target;
         btn.disabled = true; btn.textContent = _('正在應用...');
@@ -93,10 +98,8 @@ return L.view.extend({
         });
     },
 
-    // 核心重构：独立封装列表渲染函数，支持时间倒序排序与局部无刷刷新
     renderList: function(container, confdir, selectedConf) {
         return L.fs.list(confdir).then(L.bind(function(files) {
-            // 排序规则：按文件修改/创建时间倒序排列（最新的在最上方）
             files.sort(function(a, b) {
                 return (b.mtime || 0) - (a.mtime || 0);
             });
@@ -174,17 +177,28 @@ return L.view.extend({
                     E('span', { 'id': 'sb_status_label', 'class': 'label', 'style': 'color:#fff; padding:4px 8px; border-radius:3px; background:' + (isRunning ? '#46a546' : '#999') + ';' }, isRunning ? _('運行中') : _('已停止')),
                     E('span', { 'id': 'sb_net_label', 'class': 'label', 'style': 'color:#fff; padding:4px 8px; border-radius:3px; margin-left:10px; background:' + labelBg + ';' }, labelText),
                     
-                    // 重啟服務按鈕（优化样式：自适应标准高度、椭圆胶囊形）
+                    // 1. 重啟 sing-box 按鈕（修改了文字、保持椭圆胶囊样式）
                     E('button', { 'class': 'cbi-button cbi-button-reset', 'style': 'margin-left:auto; display:inline-flex; align-items:center; justify-content:center; padding:6px 20px; border-radius:100px; box-sizing:border-box;', 'click': L.bind(function(ev) {
                         ev.target.textContent = _('正在重啟...');
                         window.sessionStorage.removeItem('sb_net_cache');
                         return this.doRestart().then(L.bind(function(){
-                            ev.target.textContent = _('重啟服務');
-                            setTimeout(L.bind(this.checkNetwork, this, true), 2000);
+                            ev.target.textContent = _('重啟 sing-box');
+                            setTimeout(L.bind(this.checkStatus, this), 1000);
                         }, this));
-                    }, this) }, _('重啟服務')),
+                    }, this) }, _('重啟 sing-box')),
 
-                    // 新建按鈕（优化样式与局部刷新机制：自适应标准高度、椭圆胶囊形、无刷创建且自动置顶）
+                    // 2. 新增：停止 sing-box 按鈕（完美嵌入、状态瞬间联动检测）
+                    E('button', { 'class': 'cbi-button cbi-button-remove', 'style': 'margin-left:10px; display:inline-flex; align-items:center; justify-content:center; padding:6px 20px; border-radius:100px; box-sizing:border-box;', 'click': L.bind(function(ev) {
+                        ev.target.textContent = _('正在停止...');
+                        window.sessionStorage.removeItem('sb_net_cache');
+                        return this.doStop().then(L.bind(function(){
+                            ev.target.textContent = _('停止 sing-box');
+                            // 停止成功后立刻主动调用状态更新，前端无延迟刷新
+                            this.checkStatus();
+                        }, this));
+                    }, this) }, _('停止 sing-box')),
+
+                    // 3. 新建配置按鈕（保持完美的自适应高度及胶囊形样式）
                     E('button', { 'class': 'cbi-button cbi-button-add', 'style': 'margin-left:10px; display:inline-flex; align-items:center; justify-content:center; padding:6px 20px; border-radius:100px; box-sizing:border-box;', 'click': L.bind(function() { 
                         var name = prompt(_('新文件名:')); 
                         if(name) {
