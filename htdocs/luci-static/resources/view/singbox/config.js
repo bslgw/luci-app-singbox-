@@ -23,17 +23,18 @@ return L.view.extend({
     },
 
     checkNetwork: function(isExplicit) {
-        var netEl = document.getElementById('sb_net_label');
-        if (!netEl) return;
-
-        var cached = this.getCache();
+        var netDot = document.getElementById('sb_net_dot');
+        var netText = document.getElementById('sb_net_text');
+        if (!netDot || !netText) return;
 
         if (isExplicit) {
-            netEl.textContent = _('連通性測試中...');
-            netEl.style.background = '#17a2b8'; 
+            netText.textContent = _('連通性測試中...');
+            netDot.style.background = '#17a2b8'; 
         }
 
-        var checkCn = L.fs.exec('/bin/sh', ['-c', 'ping -c 1 -w 2 223.5.5.5 && exit 0 || exit 1']).catch(function() { return { code: 1 }; });
+        var cmdCn = 'I=$(ip route show default | awk \'{print $5}\' | head -n 1); [ -z "$I" ] && I=$(route -n | grep "^0.0.0.0" | awk \'{print $NF}\' | head -n 1); if [ -n "$I" ]; then ping -c 1 -w 2 -I "$I" 223.5.5.5; else ping -c 1 -w 2 223.5.5.5; fi';
+
+        var checkCn = L.fs.exec('/bin/sh', ['-c', cmdCn]).catch(function() { return { code: 1 }; });
         var checkGlobal = L.fs.exec('/bin/sh', ['-c', 'wget -q --spider --timeout=2 http://www.google.com && exit 0 || exit 1']).catch(function() { return { code: 1 }; });
 
         Promise.all([checkCn, checkGlobal]).then(L.bind(function(results) {
@@ -52,14 +53,14 @@ return L.view.extend({
             }
 
             if (this.getCache() !== state || isExplicit) {
-                netEl.textContent = text;
-                netEl.style.background = color;
+                netText.textContent = text;
+                netDot.style.background = color;
                 this.setCache(state);
             }
         }, this)).catch(function(e) {
-            if (netEl) {
-                netEl.textContent = _('狀態未知');
-                netEl.style.background = '#999';
+            if (netText && netDot) {
+                netText.textContent = _('狀態未知');
+                netDot.style.background = '#999';
             }
         });
     },
@@ -67,10 +68,11 @@ return L.view.extend({
     checkStatus: function() {
         return L.fs.exec('sh', ['-c', 'ps w | grep sing-box | grep -v grep']).then(L.bind(function(res) {
             var isRunning = (res.code === 0);
-            var el = document.getElementById('sb_status_label');
-            if (el) {
-                el.textContent = isRunning ? _('運行中') : _('已停止');
-                el.style.background = isRunning ? '#46a546' : '#999';
+            var sDot = document.getElementById('sb_status_dot');
+            var sText = document.getElementById('sb_status_text');
+            if (sDot && sText) {
+                sText.textContent = isRunning ? _('運行中') : _('已停止');
+                sDot.style.background = isRunning ? '#46a546' : '#999';
             }
             this.checkNetwork(false);
         }, this)).catch(function(){});
@@ -225,15 +227,25 @@ return L.view.extend({
                 E('div', { 'style': 'display:flex; align-items:center; width:100%; margin-bottom:10px;' }, [
                     E('label', { 'class': 'cbi-value-title', 'style': 'width:15%' }, _('運行狀態')),
                     E('div', { 'class': 'cbi-value-field', 'style': 'width:85%; display:flex; align-items:center;' }, [
-                        E('span', { 'id': 'sb_status_label', 'class': 'label', 'style': 'color:#fff; padding:4px 8px; border-radius:3px; background:' + (isRunning ? '#46a546' : '#999') + ';' }, isRunning ? _('運行中') : _('已停止')),
-                        E('span', { 'id': 'sb_net_label', 'class': 'label', 'style': 'color:#fff; padding:4px 8px; border-radius:3px; margin-left:10px; background:' + labelBg + ';' }, labelText),
+                        
+                        E('span', { 'id': 'sb_status_label', 'style': 'display:inline-flex; align-items:center; gap:6px;' }, [
+                            E('span', { 'id': 'sb_status_dot', 'style': 'display:inline-block; width:8px; height:8px; border-radius:50%; background:' + (isRunning ? '#46a546' : '#999') + ';' }),
+                            E('span', { 'id': 'sb_status_text', 'style': 'font-weight:bold; color:#444;' }, isRunning ? _('運行中') : _('已停止'))
+                        ]),
+
+                        E('span', { 'id': 'sb_net_label', 'style': 'display:inline-flex; align-items:center; gap:6px; margin-left:20px;' }, [
+                            E('span', { 'id': 'sb_net_dot', 'style': 'display:inline-block; width:8px; height:8px; border-radius:50%; background:' + labelBg + ';' }),
+                            E('span', { 'id': 'sb_net_text', 'style': 'font-weight:bold; color:#444;' }, labelText)
+                        ]),
                         
                         E('button', { 'class': 'cbi-button', 'style': 'margin-left:auto; display:inline-flex; align-items:center; justify-content:center; padding:6px 20px; border-radius:100px; box-sizing:border-box; background:#46a546 !important; color:#fff !important; border:none;', 'click': L.bind(function(ev) {
                             ev.target.textContent = _('正在重啟...');
                             window.sessionStorage.removeItem('sb_net_cache');
                             
-                            var sEl = document.getElementById('sb_status_label'); if(sEl) { sEl.textContent = _('運行中'); sEl.style.background = '#46a546'; }
-                            var nEl = document.getElementById('sb_net_label'); if(nEl) { nEl.textContent = _('連通性測試中...'); nEl.style.background = '#17a2b8'; }
+                            var sDot = document.getElementById('sb_status_dot'); var sText = document.getElementById('sb_status_text');
+                            if(sDot && sText) { sText.textContent = _('運行中'); sDot.style.background = '#46a546'; }
+                            var nDot = document.getElementById('sb_net_dot'); var nText = document.getElementById('sb_net_text');
+                            if(nDot && nText) { nText.textContent = _('連通性測試中...'); nDot.style.background = '#17a2b8'; }
 
                             return this.doRestart().then(L.bind(function(){
                                 ev.target.textContent = _('重啟 sing-box');
@@ -245,8 +257,10 @@ return L.view.extend({
                             ev.target.textContent = _('正在停止...');
                             window.sessionStorage.removeItem('sb_net_cache');
                             
-                            var sEl = document.getElementById('sb_status_label'); if(sEl) { sEl.textContent = _('已停止'); sEl.style.background = '#999'; }
-                            var nEl = document.getElementById('sb_net_label'); if(nEl) { nEl.textContent = _('連通性測試中...'); nEl.style.background = '#17a2b8'; }
+                            var sDot = document.getElementById('sb_status_dot'); var sText = document.getElementById('sb_status_text');
+                            if(sDot && sText) { sText.textContent = _('已停止'); sDot.style.background = '#999'; }
+                            var nDot = document.getElementById('sb_net_dot'); var nText = document.getElementById('sb_net_text');
+                            if(nDot && nText) { nText.textContent = _('連通性測試中...'); nDot.style.background = '#17a2b8'; }
 
                             return this.doStop().then(L.bind(function(){
                                 ev.target.textContent = _('停止 sing-box');
