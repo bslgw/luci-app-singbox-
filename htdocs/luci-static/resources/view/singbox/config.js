@@ -7,7 +7,13 @@
 'import poll';
 
 return L.view.extend({
-	// 狀態檢查 (加固：增加 catch 防止報錯中斷)
+	// 強力重啟組合拳
+	doRestart: function() {
+		return L.fs.exec('/etc/init.d/sing-box', ['stop']).then(function() {
+			return L.fs.exec('/etc/init.d/sing-box', ['start']);
+		});
+	},
+
 	checkStatus: function() {
 		return L.fs.exec('/etc/init.d/sing-box', ['status']).then(function(res) {
 			var isRunning = (res.code === 0);
@@ -19,7 +25,6 @@ return L.view.extend({
 		}).catch(function(){});
 	},
 
-	// 切換邏輯 (加固：採用讀寫流，解決權限問題)
 	handleSwitch: function(filename, confdir, ev) {
 		var target = confdir + '/config.json';
 		var source = confdir + '/' + filename;
@@ -30,9 +35,10 @@ return L.view.extend({
 
 		return L.fs.read(source).then(function(content) {
 			return L.fs.write(target, content || '{}');
-		}).then(function() {
-			return L.fs.exec('/etc/init.d/sing-box', ['restart']);
 		}).then(L.bind(function() {
+			// 改用強力重啟
+			return this.doRestart();
+		}, this)).then(L.bind(function() {
 			btn.textContent = _('完成'); btn.style.background = '#28a745';
 			setTimeout(L.bind(function() { 
 				btn.disabled = false; btn.textContent = oldText; btn.style.background = ''; 
@@ -48,13 +54,11 @@ return L.view.extend({
 		return Promise.all([
 			L.require('ui'), L.require('fs'), L.require('form'), L.require('uci'), L.require('poll')
 		]).then(L.bind(function(res) {
-			// 穩定性積累：確保護理變數映射
 			var ui_mod = res[0], fs_mod = res[1], form_mod = res[2], uci_mod = res[3], poll_mod = res[4];
 			L.ui = ui_mod; L.fs = fs_mod;
 
 			var m = new form_mod.Map('sing-box', _('Sing-box Bridge'), _('SING-BOX 服務管理'));
 
-			// 1. 服務控制 (保留所有已完成功能)
 			var s = m.section(form_mod.TypedSection, '_status', _('服務控制'));
 			s.anonymous = true;
 			s.render = L.bind(function() {
@@ -67,14 +71,16 @@ return L.view.extend({
 						E('span', { 'id': 'sb_status_label', 'class': 'label', 'style': 'color:#fff; padding:4px 8px; border-radius:3px; background:#999;' }, _('檢測中...')),
 						E('strong', { 'style': 'margin-left:20px; color:#666;' }, _('目錄: ')),
 						E('span', { 'style': 'font-family:monospace; margin-left:5px;' }, confdir),
-						E('button', { 'class': 'cbi-button cbi-button-reset', 'style': 'margin-left:auto;', 'click': L.bind(function() { 
-							return L.fs.exec('/etc/init.d/sing-box', ['restart']).then(L.bind(this.checkStatus, this)); 
+						E('button', { 'class': 'cbi-button cbi-button-reset', 'style': 'margin-left:auto;', 'click': L.bind(function(ev) {
+							var b = ev.target; b.textContent = _('正在重啟...');
+							return this.doRestart().then(L.bind(function(){
+								b.textContent = _('重啟服務'); this.checkStatus();
+							}, this));
 						}, this) }, _('重啟服務'))
 					])
 				]);
 			}, this);
 
-			// 2. 列表管理 (保留按鈕一行化與新建功能)
 			s = m.section(form_mod.TypedSection, '_list', _('可用配置文件'));
 			s.anonymous = true;
 			s.render = L.bind(function() {
@@ -110,10 +116,22 @@ return L.view.extend({
 							]));
 						}
 					}, this));
-					return E('div', {}, [ table, E('button', { 'class': 'cbi-button cbi-button-add', 'style': 'margin-top:10px;', 'click': function() {
-						var name = prompt(_('新檔名 (.json):'));
-						if (name && name.endsWith('.json')) fs_mod.write(confdir + '/' + name, '{}').then(function(){ location.reload(); });
-					} }, _('＋ 新建配置')) ]);
+					return E('div', {}, [ 
+						table, 
+						E('button', { 'class': 'cbi-button cbi-button-add', 'style': 'margin-top:10px;', 'click': L.bind(function() {
+							var name = prompt(_('新檔名 (.json):'));
+							if (name && name.endsWith('.json')) {
+								// 關鍵修正：在寫入前先嘗試執行一次指令確保目錄可寫，並強制刷新頁面
+								return fs_mod.exec('/bin/touch', [confdir + '/' + name]).then(function() {
+									return fs_mod.write(confdir + '/' + name, '{}');
+								}).then(function() {
+									location.reload();
+								}).catch(function(err) {
+									alert(_('建立失敗: ') + err);
+								});
+							}
+						}, this) }, _('＋ 新建配置')) 
+					]);
 				}, this));
 			}, this);
 
