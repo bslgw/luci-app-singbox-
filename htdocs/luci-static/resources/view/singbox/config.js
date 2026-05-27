@@ -9,41 +9,43 @@ return L.view.extend({
 	load: function() {
 		return Promise.all([
 			L.uci.load('sing-box'),
-			// 預加載時執行一次全面檢查
-			this.doTotalCheck()
-		]);
-	},
-
-	// 全面檢查：結合進程與聯網狀態
-	doTotalCheck: function() {
-		return Promise.all([
-			// 檢查進程
 			L.fs.exec('/bin/sh', ['-c', 'ps w | grep sing-box | grep -v grep']).then(function(res) {
-				return (res.code === 0);
-			}).catch(function() { return false; }),
-			// 檢查聯網 (測試 1.1.1.1 的 53 端口，比 ping 快且準確)
-			L.fs.exec('/usr/bin/nslookup', ['google.com', '1.1.1.1']).then(function(res) {
 				return (res.code === 0);
 			}).catch(function() { return false; })
 		]);
 	},
 
+	// 聯網檢測函數：快速測試 1.1.1.1 (1秒超時)
+	checkConnectivity: function() {
+		return L.fs.exec('/bin/ping', ['-c', '1', '-W', '1', '1.1.1.1']).then(function(res) {
+			return res.code === 0;
+		}).catch(function() { return false; });
+	},
+
+	// 核心狀態更新函數：進程 + 聯網 雙重判定
 	checkStatus: function() {
-		return this.doTotalCheck().then(function(results) {
-			var isRunning = results[0];
-			var isOnline = results[1];
+		var el = document.getElementById('sb_status_label');
+		if (!el) return;
+
+		// 1. 先檢測進程
+		return L.fs.exec('/bin/sh', ['-c', 'ps w | grep sing-box | grep -v grep']).then(L.bind(function(res) {
+			var isRunning = (res.code === 0);
 			
-			var el = document.getElementById('sb_status_label');
-			if (el) {
-				if (!isRunning) {
-					el.textContent = _('已停止');
-					el.style.background = '#999';
-				} else {
-					el.textContent = isOnline ? _('運行中 (已聯網)') : _('運行中 (無網路)');
-					el.style.background = isOnline ? '#46a546' : '#d9534f'; // 聯網綠，斷網紅
-				}
+			if (!isRunning) {
+				el.textContent = _('已停止');
+				el.style.background = '#999';
+				return;
 			}
-		});
+
+			// 2. 如果進程在跑，顯示運行中並檢測聯網
+			el.textContent = _('運行中 (檢測聯網...)');
+			el.style.background = '#46a546';
+
+			return this.checkConnectivity().then(function(isOnline) {
+				el.textContent = isOnline ? _('運行中 (已聯網)') : _('運行中 (無網路)');
+				el.style.background = isOnline ? '#46a546' : '#d9534f'; // 斷網顯示紅色
+			});
+		}, this)).catch(function(){});
 	},
 
 	doRestart: function() {
@@ -62,12 +64,13 @@ return L.view.extend({
 			return L.fs.write(target, content || '{}');
 		}).then(L.bind(this.doRestart, this)).then(L.bind(function() {
 			window.localStorage.setItem('sb_selected_conf', filename);
-			btn.textContent = _('正在啟動...'); 
+			btn.textContent = _('完成'); btn.style.background = '#28a745';
 			
-			// 延遲 3 秒刷新，確保 sing-box 已經完成初始化並嘗試聯網
-			setTimeout(function() { 
-				location.reload(); 
-			}, 3000);
+			// 應用後延遲 2 秒執行全面狀態檢查
+			setTimeout(L.bind(function() { 
+				btn.disabled = false; btn.textContent = oldText; btn.style.background = ''; 
+				this.checkStatus();
+			}, this), 2000);
 		}, this)).catch(L.bind(function(e) {
 			btn.disabled = false; btn.textContent = oldText; btn.style.background = '';
 			L.ui.showModal(_('出錯'), [E('p', _('操作失敗: %s').format(e.message || e)), E('button', {'class':'btn','click':L.ui.hideModal},_('關閉'))]);
@@ -75,10 +78,7 @@ return L.view.extend({
 	},
 
 	render: function(data) {
-		// data[1] 包含了 [isRunning, isOnline]
-		var statusData = data[1];
-		var isRunning = statusData[0];
-		var isOnline = statusData[1];
+		var isRunning = data[1];
 		var confdir = L.uci.get('sing-box', 'main', 'confdir') || '/etc/sing-box';
 		var selectedConf = window.localStorage.getItem('sb_selected_conf');
 
@@ -90,16 +90,9 @@ return L.view.extend({
 			if (!this.statusTimer) {
 				this.statusTimer = window.setInterval(L.bind(this.checkStatus, this), 5000);
 			}
-
-			// 初始顯示邏輯
-			var statusText = _('檢測中...');
-			var bgColor = '#999';
-			if (!isRunning) {
-				statusText = _('已停止');
-			} else {
-				statusText = isOnline ? _('運行中 (已聯網)') : _('運行中 (無網路)');
-				bgColor = isOnline ? '#46a546' : '#d9534f';
-			}
+			
+			// 立即執行第一次完整檢查
+			this.checkStatus();
 
 			return E('div', { 'class': 'cbi-value', 'style': 'display:flex; align-items:center; border-bottom:1px solid #eee; padding-bottom:10px;' }, [
 				E('label', { 'class': 'cbi-value-title', 'style': 'width:15%' }, _('運行狀態')),
@@ -107,15 +100,19 @@ return L.view.extend({
 					E('span', { 
 						'id': 'sb_status_label', 
 						'class': 'label', 
-						'style': 'color:#fff; padding:4px 8px; border-radius:3px; background:' + bgColor + ';' 
-					}, statusText),
+						'style': 'color:#fff; padding:4px 8px; border-radius:3px; background:' + (isRunning ? '#46a546' : '#999') + ';' 
+					}, isRunning ? _('檢測中...') : _('已停止')),
 					E('strong', { 'style': 'margin-left:20px; color:#666;' }, _('目錄: ')),
 					E('span', { 'style': 'font-family:monospace; margin-left:5px;' }, confdir),
 					E('button', { 'class': 'cbi-button cbi-button-reset', 'style': 'margin-left:auto;', 'click': L.bind(function(ev) {
-						ev.target.textContent = _('正在重啟...');
+						var b = ev.target;
+						b.textContent = _('正在重啟...');
 						return this.doRestart().then(L.bind(function(){
-							setTimeout(L.bind(this.checkStatus, this), 3000);
-							ev.target.textContent = _('重啟服務');
+							// 重啟後給予 3 秒啟動時間，再刷新狀態
+							setTimeout(L.bind(function() {
+								b.textContent = _('重啟服務');
+								this.checkStatus();
+							}, this), 3000);
 						}, this));
 					}, this) }, _('重啟服務'))
 				])
@@ -154,7 +151,7 @@ return L.view.extend({
 										L.ui.showModal(_('編輯: %s').format(file.name), [ E('div', { 'style': 'padding:10px' }, [ ta, E('div', { 'class': 'right', 'style': 'margin-top:10px' }, [
 											E('button', { 'class': 'btn', 'click': L.ui.hideModal }, _('取消')),
 											E('button', { 'class': 'btn cbi-button-positive', 'style': 'margin-left:10px', 'click': function() {
-												L.fs.write(confdir + '/' + file.name, ta.value).then(function() { L.ui.hideModal(); });
+												L.fs.write(confdir + '/' + file.name, ta.value).then(function() { L.ui.hideModal(); location.reload(); });
 											}}, _('儲存'))
 										]) ]) ]);
 									});
