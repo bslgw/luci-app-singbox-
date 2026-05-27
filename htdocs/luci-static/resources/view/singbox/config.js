@@ -7,20 +7,28 @@
 
 return L.view.extend({
 	// 使用原生 setInterval 替代 poll，徹底解決 L.poll.add 報錯
-	checkStatus: function() {
-		// 改用 pgrep 直接檢查進程，通常比 /etc/init.d/xxx status 反饋更快
-		return L.fs.exec('/usr/bin/pgrep', ['sing-box']).then(function(res) {
-			// pgrep 找到進程會返回 code 0
-			var isRunning = (res.code === 0);
+		checkStatus: function(isRunning) {
+		// 如果調用時已經知道狀態(isRunning是布爾值)，直接更新UI，否則去系統查
+		var updateUI = function(running) {
 			var el = document.getElementById('sb_status_label');
 			if (el) {
-				el.textContent = isRunning ? _('運行中') : _('已停止');
-				el.style.background = isRunning ? '#46a546' : '#999';
-				// 增加一個小動畫，讓用戶感覺是在實時監控
-				el.style.boxShadow = isRunning ? '0 0 8px #46a546' : 'none';
+				el.textContent = running ? _('運行中') : _('已停止');
+				el.style.background = running ? '#46a546' : '#999';
 			}
-		}).catch(function(){});
+		};
+
+		if (typeof isRunning === 'boolean') {
+			updateUI(isRunning);
+			return Promise.resolve();
+		}
+
+		return L.fs.exec('/usr/bin/pgrep', ['sing-box']).then(function(res) {
+			updateUI(res.code === 0);
+		}).catch(function(){
+			updateUI(false);
+		});
 	},
+
 
 	doRestart: function() {
 		return L.fs.exec('/bin/sh', ['-c', '/etc/init.d/sing-box stop && /etc/init.d/sing-box start']);
