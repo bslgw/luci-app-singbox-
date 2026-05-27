@@ -23,6 +23,7 @@ return L.view.extend({
         ]);
     },
 
+    // ✨ 核心修復：加入單獨的 .catch 防崩潰裝甲
     checkNetwork: function(isExplicit) {
         var netEl = document.getElementById('sb_net_label');
         if (!netEl) return;
@@ -34,12 +35,17 @@ return L.view.extend({
             netEl.style.background = '#17a2b8'; 
         }
 
-        Promise.all([
-            L.fs.exec('/bin/sh', ['-c', 'wget -q --spider --timeout=2 http://www.baidu.com && exit 0 || exit 1']),
-            L.fs.exec('/bin/sh', ['-c', 'wget -q --spider --timeout=2 http://www.google.com && exit 0 || exit 1'])
-        ]).then(L.bind(function(results) {
-            var cnOK = (results[0].code === 0);
-            var globalOK = (results[1].code === 0);
+        // 分別封裝 Promise，確保網路徹底不通時返回失敗(code: 1)，而不是讓整個腳本崩潰
+        var checkCn = L.fs.exec('/bin/sh', ['-c', 'wget -q --spider --timeout=2 http://www.baidu.com && exit 0 || exit 1'])
+            .catch(function() { return { code: 1 }; });
+            
+        var checkGlobal = L.fs.exec('/bin/sh', ['-c', 'wget -q --spider --timeout=2 http://www.google.com && exit 0 || exit 1'])
+            .catch(function() { return { code: 1 }; });
+
+        Promise.all([checkCn, checkGlobal]).then(L.bind(function(results) {
+            // 安全讀取 code
+            var cnOK = (results[0] && results[0].code === 0);
+            var globalOK = (results[1] && results[1].code === 0);
             
             var state, text, color;
             if (cnOK && globalOK) {
@@ -57,7 +63,13 @@ return L.view.extend({
                 netEl.style.background = color;
                 this.setCache(state);
             }
-        }, this)).catch(function(){});
+        }, this)).catch(function(e) {
+            // 終極兜底，確保無論如何 UI 都不會卡死
+            if (netEl) {
+                netEl.textContent = _('網路狀態未知');
+                netEl.style.background = '#999';
+            }
+        });
     },
 
     checkStatus: function() {
@@ -215,7 +227,6 @@ return L.view.extend({
 
             return E('div', { 'class': 'cbi-value', 'style': 'display:flex; flex-direction:column; border-bottom:1px solid #eee; padding-bottom:10px;' }, [
                 
-                // 第一行：狀態標籤與操作按鈕
                 E('div', { 'style': 'display:flex; align-items:center; width:100%; margin-bottom:10px;' }, [
                     E('label', { 'class': 'cbi-value-title', 'style': 'width:15%' }, _('運行狀態')),
                     E('div', { 'class': 'cbi-value-field', 'style': 'width:85%; display:flex; align-items:center;' }, [
@@ -230,60 +241,3 @@ return L.view.extend({
                             var nEl = document.getElementById('sb_net_label'); if(nEl) { nEl.textContent = _('連通性測試中...'); nEl.style.background = '#17a2b8'; }
 
                             return this.doRestart().then(L.bind(function(){
-                                ev.target.textContent = _('重啟 sing-box');
-                                setTimeout(L.bind(this.checkStatus, this), 1000);
-                            }, this));
-                        }, this) }, _('重啟 sing-box')),
-
-                        E('button', { 'class': 'cbi-button', 'style': 'margin-left:10px; display:inline-flex; align-items:center; justify-content:center; padding:6px 20px; border-radius:100px; box-sizing:border-box; background:#999 !important; color:#fff !important; border:none;', 'click': L.bind(function(ev) {
-                            ev.target.textContent = _('正在停止...');
-                            window.sessionStorage.removeItem('sb_net_cache');
-                            
-                            var sEl = document.getElementById('sb_status_label'); if(sEl) { sEl.textContent = _('已停止'); sEl.style.background = '#999'; }
-                            var nEl = document.getElementById('sb_net_label'); if(nEl) { nEl.textContent = _('連通性測試中...'); nEl.style.background = '#17a2b8'; }
-
-                            return this.doStop().then(L.bind(function(){
-                                ev.target.textContent = _('停止 sing-box');
-                                setTimeout(L.bind(this.checkStatus, this), 600);
-                            }, this));
-                        }, this) }, _('停止 sing-box')),
-
-                        E('button', { 'class': 'cbi-button cbi-button-add', 'style': 'margin-left:10px; display:inline-flex; align-items:center; justify-content:center; padding:6px 20px; border-radius:100px; box-sizing:border-box;', 'click': L.bind(function() { 
-                            var name = prompt(_('新文件名:')); 
-                            if(name) {
-                                var filename = name.endsWith('.json') ? name : name + '.json';
-                                L.fs.write(confdir + '/' + filename, '{}').then(L.bind(function(){ 
-                                    var container = document.getElementById('sb_file_list_container');
-                                    if (container) {
-                                        this.renderList(container, confdir, window.localStorage.getItem('sb_selected_conf'));
-                                    }
-                                }, this));
-                            }
-                        }, this) }, _('＋ 新建配置'))
-                    ])
-                ]),
-                
-                // 第二行：狀態圖例 (Legend)
-                E('div', { 'style': 'display:flex; align-items:center; width:100%;' }, [
-                    E('div', { 'style': 'width:15%' }, ''), 
-                    E('div', { 'style': 'width:85%; display:flex; gap:16px; font-size:12px; color:#666; user-select:none;' }, [
-                        E('span', { 'style': 'display:flex; align-items:center; gap:4px;' }, [ E('span', { 'style': 'width:8px; height:8px; border-radius:50%; background:#46a546;' }), _('暢通') ]),
-                        E('span', { 'style': 'display:flex; align-items:center; gap:4px;' }, [ E('span', { 'style': 'width:8px; height:8px; border-radius:50%; background:#ffc107;' }), _('僅國內 (代理失效)') ]),
-                        E('span', { 'style': 'display:flex; align-items:center; gap:4px;' }, [ E('span', { 'style': 'width:8px; height:8px; border-radius:50%; background:#6f42c1;' }), _('僅國外 (路由異常)') ]),
-                        E('span', { 'style': 'display:flex; align-items:center; gap:4px;' }, [ E('span', { 'style': 'width:8px; height:8px; border-radius:50%; background:#dc3545;' }), _('斷網') ]),
-                        E('span', { 'style': 'display:flex; align-items:center; gap:4px;' }, [ E('span', { 'style': 'width:8px; height:8px; border-radius:50%; background:#17a2b8;' }), _('檢測中') ])
-                    ])
-                ])
-            ]);
-        }, this);
-
-        var s2 = m.section(L.form.TypedSection, '_list', _('可用配置文件'));
-        s2.render = L.bind(function() {
-            var container = E('div', { 'id': 'sb_file_list_container' });
-            this.renderList(container, confdir, selectedConf);
-            return container;
-        }, this);
-
-        return m.render();
-    }
-});
