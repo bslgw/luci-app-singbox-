@@ -6,7 +6,6 @@
 'import uci';
 
 return L.view.extend({
-	// 1. 預加載數據：狀態與 UCI 配置（包含我們新增的 current_conf 狀態）
 	load: function() {
 		return Promise.all([
 			L.uci.load('sing-box'),
@@ -31,7 +30,6 @@ return L.view.extend({
 		return L.fs.exec('/etc/init.d/sing-box', ['restart']);
 	},
 
-	// 2. 修改切換邏輯：增加 UCI 狀態記錄
 	handleSwitch: function(filename, confdir, ev) {
 		var target = confdir + '/config.json';
 		var source = confdir + '/' + filename;
@@ -42,14 +40,13 @@ return L.view.extend({
 
 		return L.fs.read(source).then(function(content) {
 			return L.fs.write(target, content || '{}');
-		}).then(L.bind(function() {
-			// 在應用成功後，將文件名記錄到 UCI 中
-			L.uci.set('sing-box', 'main', 'current_conf', filename);
-			return L.uci.save().then(function() { return L.uci.apply(); });
-		}, this)).then(L.bind(this.doRestart, this)).then(L.bind(function() {
+		}).then(L.bind(this.doRestart, this)).then(L.bind(function() {
+			// 核心邏輯：將選中的文件名存入瀏覽器本地存儲
+			window.localStorage.setItem('sb_selected_conf', filename);
+			
 			btn.textContent = _('完成'); btn.style.background = '#28a745';
 			setTimeout(function() { 
-				location.reload(); // 刷新頁面以顯示綠色對號
+				location.reload(); // 刷新頁面，對號就會出現
 			}, 1000);
 		}, this)).catch(L.bind(function(e) {
 			btn.disabled = false; btn.textContent = oldText; btn.style.background = '';
@@ -60,8 +57,9 @@ return L.view.extend({
 	render: function(data) {
 		var isRunning = data[1];
 		var confdir = L.uci.get('sing-box', 'main', 'confdir') || '/etc/sing-box';
-		// 讀取最後一次選用的配置文件名
-		var currentConf = L.uci.get('sing-box', 'main', 'current_conf');
+		
+		// 從本地存儲獲取上次點擊的文件名，首次安裝時這裡為 null
+		var selectedConf = window.localStorage.getItem('sb_selected_conf');
 
 		var m = new L.form.Map('sing-box', _('Sing-box Bridge'), _('SING-BOX 服務管理'));
 		var s = m.section(L.form.TypedSection, '_status', _('服務控制'));
@@ -80,7 +78,6 @@ return L.view.extend({
 						'class': 'label', 
 						'style': 'color:#fff; padding:4px 8px; border-radius:3px; background:' + (isRunning ? '#46a546' : '#999') + ';' 
 					}, isRunning ? _('運行中') : _('已停止')),
-					
 					E('strong', { 'style': 'margin-left:20px; color:#666;' }, _('目錄: ')),
 					E('span', { 'style': 'font-family:monospace; margin-left:5px;' }, confdir),
 					E('button', { 'class': 'cbi-button cbi-button-reset', 'style': 'margin-left:auto;', 'click': L.bind(function(ev) {
@@ -99,7 +96,7 @@ return L.view.extend({
 			return L.fs.list(confdir).then(L.bind(function(files) {
 				var table = E('table', { 'class': 'table cbi-section-table' }, [
 					E('tr', { 'class': 'tr cbi-section-table-titles' }, [
-						E('th', { 'class': 'th', 'style': 'width:40px; text-align:center;' }, ''), // 勾選位置
+						E('th', { 'class': 'th', 'style': 'width:40px; text-align:center;' }, ''), 
 						E('th', { 'class': 'th' }, _('檔案名稱')),
 						E('th', { 'class': 'th', 'style': 'width:240px; text-align:center;' }, _('管理操作'))
 					])
@@ -107,8 +104,8 @@ return L.view.extend({
 
 				files.forEach(L.bind(function(file) {
 					if (file.name.endsWith('.json') && file.name !== 'config.json') {
-						// 判斷是否顯示對號：文件名必須等於 UCI 中記錄的名
-						var isSelected = (file.name === currentConf);
+						// 判斷是否顯示對號：僅當 selectedConf 與當前檔名一致時
+						var isSelected = (file.name === selectedConf);
 
 						table.appendChild(E('tr', { 'class': 'tr' }, [
 							E('td', { 'class': 'td', 'style': 'vertical-align:middle; text-align:center;' }, [
@@ -119,8 +116,7 @@ return L.view.extend({
 								E('button', { 
 									'class': 'btn cbi-button-apply', 
 									'style': 'margin:0 2px;', 
-									'click': L.bind(this.handleSwitch, this, file.name, confdir),
-									'disabled': isSelected // 已經選中的禁止重複點擊
+									'click': L.bind(this.handleSwitch, this, file.name, confdir) 
 								}, isSelected ? _('生效中') : _('選用')),
 								E('button', { 'class': 'btn cbi-button-neutral', 'style': 'margin:0 2px;', 'click': function() {
 									L.fs.read(confdir + '/' + file.name).catch(function(){ return ''; }).then(function(c) {
@@ -128,13 +124,16 @@ return L.view.extend({
 										L.ui.showModal(_('編輯: %s').format(file.name), [ E('div', { 'style': 'padding:10px' }, [ ta, E('div', { 'class': 'right', 'style': 'margin-top:10px' }, [
 											E('button', { 'class': 'btn', 'click': L.ui.hideModal }, _('取消')),
 											E('button', { 'class': 'btn cbi-button-positive', 'style': 'margin-left:10px', 'click': function() {
-												L.fs.write(confdir + '/' + file.name, ta.value).then(function() { L.ui.hideModal(); });
+												L.fs.write(confdir + '/' + file.name, ta.value).then(function() { location.reload(); });
 											}}, _('儲存'))
 										]) ]) ]);
 									});
 								} }, _('編輯')),
 								E('button', { 'class': 'btn cbi-button-remove', 'style': 'margin:0 2px;', 'click': function() {
-									if (confirm(_('刪除 %s？').format(file.name))) L.fs.remove(confdir + '/' + file.name).then(function(){ location.reload(); });
+									if (confirm(_('刪除 %s？').format(file.name))) {
+										if (file.name === selectedConf) window.localStorage.removeItem('sb_selected_conf');
+										L.fs.remove(confdir + '/' + file.name).then(function(){ location.reload(); });
+									}
 								} }, _('刪除'))
 							])
 						]));
@@ -147,7 +146,7 @@ return L.view.extend({
 						var name = prompt(_('請輸入新檔名:'));
 						if (name) {
 							var fname = name.endsWith('.json') ? name : name + '.json';
-							L.fs.write(confdir + '/' + fname, '{}').then(function() { location.reload(); }).catch(function(e){ alert(e); });
+							L.fs.write(confdir + '/' + fname, '{}').then(function() { location.reload(); });
 						}
 					} }, _('＋ 新建配置')) 
 				]);
