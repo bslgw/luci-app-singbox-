@@ -132,7 +132,7 @@ return L.view.extend({
                                         ev.target.closest('tr').remove(); 
                                     }, this)); 
                                 }
-                            }, this) } }, _('刪除'))
+                            }, this) }, _('刪除'))
                         ])
                     ]));
                 }
