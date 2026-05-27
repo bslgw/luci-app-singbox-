@@ -8,12 +8,16 @@
 return L.view.extend({
 	// 使用原生 setInterval 替代 poll，徹底解決 L.poll.add 報錯
 	checkStatus: function() {
-		return L.fs.exec('/etc/init.d/sing-box', ['status']).then(function(res) {
+		// 改用 pgrep 直接檢查進程，通常比 /etc/init.d/xxx status 反饋更快
+		return L.fs.exec('/usr/bin/pgrep', ['sing-box']).then(function(res) {
+			// pgrep 找到進程會返回 code 0
 			var isRunning = (res.code === 0);
 			var el = document.getElementById('sb_status_label');
 			if (el) {
 				el.textContent = isRunning ? _('運行中') : _('已停止');
 				el.style.background = isRunning ? '#46a546' : '#999';
+				// 增加一個小動畫，讓用戶感覺是在實時監控
+				el.style.boxShadow = isRunning ? '0 0 8px #46a546' : 'none';
 			}
 		}).catch(function(){});
 	},
