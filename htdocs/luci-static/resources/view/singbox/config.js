@@ -6,180 +6,136 @@
 'import uci';
 
 return L.view.extend({
-	// 聯網狀態快取
-	getCache: function() { return window.sessionStorage.getItem('sb_net_cache'); },
-	setCache: function(val) { window.sessionStorage.setItem('sb_net_cache', val); },
+    isChecking: false,
+    statusTimer: null,
 
-	load: function() {
-		return Promise.all([
-			L.uci.load('sing-box'),
-			L.fs.exec('sh', ['-c', 'ps w | grep sing-box | grep -v grep']).then(function(res) {
-				return (res.code === 0);
-			}).catch(function() { return false; })
-		]);
-	},
+    getCache: function() { return window.sessionStorage.getItem('sb_net_cache'); },
+    setCache: function(val) { window.sessionStorage.setItem('sb_net_cache', val); },
 
-		checkNetwork: function(isExplicit) {
-		var netEl = document.getElementById('sb_net_label');
-		if (!netEl) return;
+    load: function() {
+        return Promise.all([
+            L.uci.load('sing-box'),
+            L.fs.exec('pgrep', ['-f', 'sing-box']).then(res => res.code === 0).catch(() => false)
+        ]);
+    },
 
-		var cached = this.getCache();
+    updateNetworkUI: function(isOnline) {
+        var netEl = document.getElementById('sb_net_label');
+        if (!netEl) return;
+        netEl.textContent = isOnline ? _('聯網正常') : _('連接受阻');
+        netEl.style.background = isOnline ? '#46a546' : '#dc3545';
+        this.setCache(isOnline ? 'online' : 'offline');
+    },
 
-		// 只有狀態為空且主動觸發時顯示檢測中
-		if (isExplicit && !cached) {
-			netEl.textContent = _('檢測中...');
-			netEl.style.background = '#ffc107';
-		}
+    checkNetwork: function(isExplicit) {
+        if (this.isChecking) return;
+        var netEl = document.getElementById('sb_net_label');
+        if (isExplicit && netEl) {
+            netEl.textContent = _('檢測中...');
+            netEl.style.background = '#ffc107';
+        }
 
-		// 使用 /bin/sh -c 包裹指令，解決 LuCI 環境執行差異問題
-		return L.fs.exec('/bin/sh', ['-c', 'wget -q --spider --timeout=2 http://google.com && exit 0 || exit 1']).then(L.bind(function(res) {
-			var isOnline = (res.code === 0);
-			var current = isOnline ? 'online' : 'offline';
+        this.isChecking = true;
+        return L.fs.exec('wget', ['-q', '--spider', '--timeout=3', 'http://connectivitycheck.gstatic.com/generate_204'])
+            .then(res => this.updateNetworkUI(res.code === 0))
+            .catch(() => this.updateNetworkUI(false))
+            .finally(() => { this.isChecking = false; });
+    },
 
-			// 只有狀態變更才更新 UI
-			if (this.getCache() !== current) {
-				netEl.textContent = isOnline ? _('聯網正常') : _('連接受阻');
-				netEl.style.background = isOnline ? '#46a546' : '#dc3545';
-				this.setCache(current);
-			}
-		}, this)).catch(L.bind(function() {
-			if (this.getCache() !== 'offline') {
-				netEl.textContent = _('連接受阻');
-				netEl.style.background = '#dc3545';
-				this.setCache('offline');
-			}
-		}, this));
-	},
+    checkStatus: function() {
+        L.fs.exec('pgrep', ['-f', 'sing-box']).then(res => {
+            var isRunning = (res.code === 0);
+            var el = document.getElementById('sb_status_label');
+            if (el) {
+                el.textContent = isRunning ? _('運行中') : _('已停止');
+                el.style.background = isRunning ? '#46a546' : '#999';
+            }
+        });
+        this.checkNetwork(false);
+    },
 
+    handleSwitch: function(filename, confdir, ev) {
+        var btn = ev.target;
+        btn.disabled = true; btn.textContent = _('正在應用...');
 
-	checkStatus: function() {
-		L.fs.exec('sh', ['-c', 'ps w | grep sing-box | grep -v grep']).then(function(res) {
-			var isRunning = (res.code === 0);
-			var el = document.getElementById('sb_status_label');
-			if (el) {
-				el.textContent = isRunning ? _('運行中') : _('已停止');
-				el.style.background = isRunning ? '#46a546' : '#999';
-			}
-		}).catch(function(){});
+        return L.fs.read(confdir + '/' + filename).then(c => {
+            return L.fs.write(confdir + '/config.json', c || '{}');
+        }).then(() => L.fs.exec('/etc/init.d/sing-box', ['restart']))
+        .then(() => {
+            window.localStorage.setItem('sb_selected_conf', filename);
+            document.querySelectorAll('tr[data-filename]').forEach(row => {
+                var isTarget = (row.getAttribute('data-filename') === filename);
+                row.querySelector('.check-cell').innerHTML = isTarget ? '<span style="color:#46a546; font-weight:bold;">✔</span>' : '';
+                row.querySelector('.name-cell').style.cssText = isTarget ? 'font-weight:bold; color:#46a546;' : '';
+                row.querySelector('.cbi-button-apply').textContent = isTarget ? _('生效中') : _('選用');
+            });
+            btn.disabled = false;
+        }).catch(e => { btn.disabled = false; btn.textContent = _('選用'); alert(e.message); });
+    },
 
-		// 邏輯 4：後台檢測 5 秒一次，靜默執行
-		this.checkNetwork(false);
-	},
+    render: function(data) {
+        var isRunning = data[1];
+        var confdir = L.uci.get('sing-box', 'main', 'confdir') || '/etc/sing-box';
+        var selectedConf = window.localStorage.getItem('sb_selected_conf');
 
-	doRestart: function() {
-		return L.fs.exec('/etc/init.d/sing-box', ['restart']);
-	},
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden) clearInterval(this.statusTimer);
+            else this.statusTimer = setInterval(() => this.checkStatus(), 5000);
+        });
 
-	// 邏輯 5：異步更新，不刷新頁面
-	handleSwitch: function(filename, confdir, ev) {
-		var btn = ev.target;
-		btn.disabled = true; btn.textContent = _('正在應用...');
+        var m = new L.form.Map('sing-box', _('Sing-box Bridge'));
+        var s = m.section(L.form.TypedSection, '_status');
+        s.anonymous = true;
 
-		return L.fs.read(confdir + '/' + filename).then(function(c) {
-			return L.fs.write(confdir + '/config.json', c || '{}');
-		}).then(L.bind(this.doRestart, this)).then(L.bind(function() {
-			window.localStorage.setItem('sb_selected_conf', filename);
-			
-			// 局部更新表格列，不刷新整個頁面 (邏輯 2)
-			var rows = document.querySelectorAll('tr[data-filename]');
-			rows.forEach(function(row) {
-				var isTarget = (row.getAttribute('data-filename') === filename);
-				row.querySelector('.check-cell').innerHTML = isTarget ? '<span style="color:#46a546; font-weight:bold;">✔</span>' : '';
-				row.querySelector('.name-cell').style.fontWeight = isTarget ? 'bold' : 'normal';
-				row.querySelector('.name-cell').style.color = isTarget ? '#46a546' : '';
-				row.querySelector('.cbi-button-apply').textContent = isTarget ? _('生效中') : _('選用');
-			});
-			btn.disabled = false;
-			// 關鍵：選用後不清除快取，後台 5 秒後會自動靜默更新聯網狀態
-		}, this)).catch(function(e) { 
-			btn.disabled = false; btn.textContent = _('選用');
-			alert(e.message); 
-		});
-	},
+        s.render = L.bind(function() {
+            this.statusTimer = setInterval(() => this.checkStatus(), 5000);
+            var cached = this.getCache();
+            if (!cached) setTimeout(() => this.checkNetwork(true), 100);
 
-	render: function(data) {
-		var isRunning = data;
-		var confdir = L.uci.get('sing-box', 'main', 'confdir') || '/etc/sing-box';
-		var selectedConf = window.localStorage.getItem('sb_selected_conf');
+            return E('div', { 'class': 'cbi-value' }, [
+                E('label', { 'class': 'cbi-value-title' }, _('運行狀態')),
+                E('div', { 'class': 'cbi-value-field' }, [
+                    E('span', { id: 'sb_status_label', style: 'color:#fff; padding:4px 8px; border-radius:3px; background:' + (isRunning ? '#46a546' : '#999') }, isRunning ? _('運行中') : _('已停止')),
+                    E('span', { id: 'sb_net_label', style: 'color:#fff; padding:4px 8px; border-radius:3px; margin-left:10px; background:' + (cached === 'online' ? '#46a546' : (cached === 'offline' ? '#dc3545' : '#ffc107')) }, cached === 'online' ? _('聯網正常') : (cached === 'offline' ? _('連接受阻') : _('檢測中...'))),
+                    E('button', { 'class': 'cbi-button', style: 'margin-left:10px;', click: ev => {
+                        window.sessionStorage.removeItem('sb_net_cache');
+                        L.fs.exec('/etc/init.d/sing-box', ['restart']).then(() => setTimeout(() => this.checkNetwork(true), 2000));
+                    }}, _('重啟服務'))
+                ])
+            ]);
+        }, this);
 
-		var m = new L.form.Map('sing-box', _('Sing-box Bridge'), _('SING-BOX 服務管理'));
-		var s = m.section(L.form.TypedSection, '_status', _('服務控制'));
-		s.anonymous = true;
+        var s2 = m.section(L.form.TypedSection, '_list');
+        s2.render = () => L.fs.list(confdir).then(files => {
+            var table = E('table', { 'class': 'table cbi-section-table' }, [
+                E('tr', { 'class': 'tr cbi-section-table-titles' }, [ E('th', {class:'th'}, ''), E('th', {class:'th'}, _('檔案名稱')), E('th', {class:'th'}, _('管理')) ])
+            ]);
+            files.forEach(file => {
+                if (file.name.endsWith('.json') && file.name !== 'config.json') {
+                    var isSelected = (file.name === selectedConf);
+                    table.appendChild(E('tr', { 'class': 'tr', 'data-filename': file.name }, [
+                        E('td', { 'class': 'td check-cell' }, [ isSelected ? '✔' : '' ]),
+                        E('td', { 'class': 'td name-cell', style: isSelected ? 'font-weight:bold; color:#46a546;' : '' }, file.name),
+                        E('td', { 'class': 'td' }, [
+                            E('button', { 'class': 'btn cbi-button-apply', click: ev => this.handleSwitch(file.name, confdir, ev) }, isSelected ? _('生效中') : _('選用')),
+                            E('button', { 'class': 'btn', style: 'margin-left:4px;', click: () => {
+                                L.fs.read(confdir + '/' + file.name).then(c => {
+                                    var ta = E('textarea', { style: 'width:100%; height:400px;' }, [ c ]);
+                                    L.ui.showModal(_('編輯'), [ ta, E('div', { class: 'right' }, [
+                                        E('button', { class: 'btn', click: L.ui.hideModal }, _('取消')),
+                                        E('button', { class: 'btn cbi-button-positive', click: () => {
+                                            L.fs.write(confdir + '/' + file.name, ta.value).then(L.ui.hideModal);
+                                        }}, _('儲存'))
+                                    ]) ]);
+                                });
+                            }}, _('編輯'))
+                        ])
+                    ]));
+                }
+            });
+            return table;
+        });
 
-		s.render = L.bind(function() {
-			// 定時器邏輯
-			if (this.statusTimer) window.clearInterval(this.statusTimer);
-			this.statusTimer = window.setInterval(L.bind(this.checkStatus, this), 5000);
-
-			var cached = this.getCache();
-			var labelText = '', labelBg = 'transparent';
-
-			// 邏輯 1：如果有聯網狀態，就直接顯示，不要主動檢測
-			if (cached === 'online') {
-				labelText = _('聯網正常'); labelBg = '#46a546';
-			} else if (cached === 'offline') {
-				labelText = _('連接受阻'); labelBg = '#dc3545';
-			} else {
-				// 邏輯 1：狀態為空時（首次進入），顯示檢測中並觸發強制檢測
-				labelText = _('檢測中...'); labelBg = '#ffc107';
-				setTimeout(L.bind(this.checkNetwork, this, true), 100);
-			}
-
-			return E('div', { 'class': 'cbi-value', 'style': 'display:flex; align-items:center; border-bottom:1px solid #eee; padding-bottom:10px;' }, [
-				E('label', { 'class': 'cbi-value-title', 'style': 'width:15%' }, _('運行狀態')),
-				E('div', { 'class': 'cbi-value-field', 'style': 'width:85%; display:flex; align-items:center;' }, [
-					E('span', { 'id': 'sb_status_label', 'class': 'label', 'style': 'color:#fff; padding:4px 8px; border-radius:3px; background:' + (isRunning ? '#46a546' : '#999') + ';' }, isRunning ? _('運行中') : _('已停止')),
-					E('span', { 'id': 'sb_net_label', 'class': 'label', 'style': 'color:#fff; padding:4px 8px; border-radius:3px; margin-left:10px; background:' + labelBg + ';' }, labelText),
-					// 邏輯 3：只有點擊重啟服務，才主動檢查
-					E('button', { 'class': 'cbi-button cbi-button-reset', 'style': 'margin-left:auto;', 'click': L.bind(function(ev) {
-						ev.target.textContent = _('正在重啟...');
-						window.sessionStorage.removeItem('sb_net_cache'); // 核心：清空快取，確保觸發「檢測中」
-						return this.doRestart().then(L.bind(function(){
-							ev.target.textContent = _('重啟服務');
-							setTimeout(L.bind(this.checkNetwork, this, true), 2000);
-						}, this));
-					}, this) }, _('重啟服務'))
-				])
-			]);
-		}, this);
-
-		// [列表部分代碼，確保 tr 包含 data-filename]
-		var s2 = m.section(L.form.TypedSection, '_list', _('可用配置文件'));
-		s2.render = L.bind(function() {
-			return L.fs.list(confdir).then(L.bind(function(files) {
-				var table = E('table', { 'class': 'table cbi-section-table' }, [
-					E('tr', { 'class': 'tr cbi-section-table-titles' }, [
-						E('th', { 'class': 'th', 'style': 'width:40px; text-align:center;' }, ''), 
-						E('th', { 'class': 'th' }, _('檔案名稱')),
-						E('th', { 'class': 'th', 'style': 'width:240px; text-align:center;' }, _('管理操作'))
-					])
-				]);
-				files.forEach(L.bind(function(file) {
-					if (file.name.endsWith('.json') && file.name !== 'config.json') {
-						var isSelected = (file.name === selectedConf);
-						table.appendChild(E('tr', { 'class': 'tr', 'data-filename': file.name }, [
-							E('td', { 'class': 'td check-cell', 'style': 'text-align:center;' }, [ isSelected ? E('span', { 'style': 'color:#46a546; font-weight:bold;' }, '✔') : '' ]),
-							E('td', { 'class': 'td name-cell', 'style': (isSelected ? 'font-weight:bold; color:#46a546;' : '') }, file.name),
-							E('td', { 'class': 'td', 'style': 'text-align:center;' }, [
-								E('button', { 'class': 'btn cbi-button-apply', 'click': L.bind(this.handleSwitch, this, file.name, confdir) }, isSelected ? _('生效中') : _('選用')),
-								E('button', { 'class': 'btn cbi-button-neutral', 'style': 'margin-left:4px;', 'click': L.bind(function() {
-									L.fs.read(confdir + '/' + file.name).then(function(c) {
-										var ta = E('textarea', { 'style': 'width:100%; height:400px;' }, [ c || '{}' ]);
-										L.ui.showModal(_('編輯'), [ E('div', {}, [ ta, E('div', { 'class': 'right' }, [
-											E('button', { 'class': 'btn', 'click': L.ui.hideModal }, _('取消')),
-											E('button', { 'class': 'btn cbi-button-positive', 'click': function() { L.fs.write(confdir + '/' + file.name, ta.value).then(function() { L.ui.hideModal(); }); }}, _('儲存'))
-										]) ]) ]);
-									});
-								}, this) }, _('編輯')),
-								E('button', { 'class': 'btn cbi-button-remove', 'style': 'margin-left:4px;', 'click': function(ev) { if (confirm(_('刪除？'))) L.fs.remove(confdir + '/' + file.name).then(function(){ ev.target.closest('tr').remove(); }); } }, _('刪除'))
-							])
-						]));
-					}
-				}, this));
-				return E('div', {}, [ table, E('button', { 'class': 'cbi-button cbi-button-add', 'style': 'margin-top:10px;', 'click': function() { var name = prompt(_('新文件名:')); if(name) L.fs.write(confdir + '/' + (name.endsWith('.json') ? name : name + '.json'), '{}').then(function(){ location.reload(); }); }}, _('＋ 新建配置')) ]);
-			}, this));
-		}, this);
-
-		return m.render();
-	}
+        return m.render();
+    }
 });
