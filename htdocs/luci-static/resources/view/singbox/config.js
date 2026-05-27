@@ -32,7 +32,13 @@ return L.view.extend({
             netDot.style.background = '#17a2b8'; 
         }
 
-        var cmdCn = 'I=$(ip route show default | awk \'{print $5}\' | head -n 1); [ -z "$I" ] && I=$(route -n | grep "^0.0.0.0" | awk \'{print $NF}\' | head -n 1); if [ -n "$I" ]; then ping -c 1 -w 2 -I "$I" 223.5.5.5; else ping -c 1 -w 2 223.5.5.5; fi';
+        // v6.8 终极立体探测脚本：ubus原生提取 -> 智能路由过滤 -> 物理网关兜底
+        var cmdCn = 'I=$(jsonfilter -s "$(ubus call network.interface.wan status 2>/dev/null)" -e "@.l3_device"); ' +
+                    '[ -z "$I" ] && I=$(jsonfilter -s "$(ubus call network.interface.wan6 status 2>/dev/null)" -e "@.l3_device"); ' +
+                    '[ -z "$I" ] && I=$(ip route show default | grep -oE \'dev [^ ]+\' | awk \'{print $2}\' | grep -vE \'^(tun|br-|lo|link|docker)\' | head -n 1); ' +
+                    'G=$(ip route show default | grep -vE \'tun\' | grep -oE \'via [^ ]+\' | awk \'{print $2}\' | head -n 1); ' +
+                    'R=1; if [ -n "$I" ]; then ping -c 1 -w 2 -I "$I" 223.5.5.5 >/dev/null 2>&1 && R=0; else ping -c 1 -w 2 223.5.5.5 >/dev/null 2>&1 && R=0; fi; ' +
+                    '[ $R -ne 0 ] && [ -n "$G" ] && ping -c 1 -w 2 "$G" >/dev/null 2>&1 && R=0; exit $R';
 
         var checkCn = L.fs.exec('/bin/sh', ['-c', cmdCn]).catch(function() { return { code: 1 }; });
         var checkGlobal = L.fs.exec('/bin/sh', ['-c', 'wget -q --spider --timeout=2 http://www.google.com && exit 0 || exit 1']).catch(function() { return { code: 1 }; });
