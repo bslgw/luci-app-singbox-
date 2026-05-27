@@ -93,6 +93,56 @@ return L.view.extend({
         });
     },
 
+    // 核心重构：独立封装列表渲染函数，支持时间倒序排序与局部无刷刷新
+    renderList: function(container, confdir, selectedConf) {
+        return L.fs.list(confdir).then(L.bind(function(files) {
+            // 排序规则：按文件修改/创建时间倒序排列（最新的在最上方）
+            files.sort(function(a, b) {
+                return (b.mtime || 0) - (a.mtime || 0);
+            });
+
+            var table = E('table', { 'class': 'table cbi-section-table' }, [
+                E('tr', { 'class': 'tr cbi-section-table-titles' }, [
+                    E('th', { 'class': 'th', 'style': 'width:40px; text-align:center;' }, ''), 
+                    E('th', { 'class': 'th' }, _('檔案名稱')),
+                    E('th', { 'class': 'th', 'style': 'width:240px; text-align:center;' }, _('管理操作'))
+                ])
+            ]);
+
+            files.forEach(L.bind(function(file) {
+                if (file.name.endsWith('.json') && file.name !== 'config.json') {
+                    var isSelected = (file.name === selectedConf);
+                    table.appendChild(E('tr', { 'class': 'tr', 'data-filename': file.name }, [
+                        E('td', { 'class': 'td check-cell', 'style': 'text-align:center;' }, [ isSelected ? E('span', { 'style': 'color:#46a546; font-weight:bold;' }, '✔') : '' ]),
+                        E('td', { 'class': 'td name-cell', 'style': (isSelected ? 'font-weight:bold; color:#46a546;' : '') }, file.name),
+                        E('td', { 'class': 'td', 'style': 'text-align:center;' }, [
+                            E('button', { 'class': 'btn cbi-button-apply', 'click': L.bind(this.handleSwitch, this, file.name, confdir) }, isSelected ? _('生效中') : _('選用')),
+                            E('button', { 'class': 'btn cbi-button-neutral', 'style': 'margin-left:4px;', 'click': L.bind(function() {
+                                L.fs.read(confdir + '/' + file.name).then(function(c) {
+                                    var ta = E('textarea', { 'style': 'width:100%; height:400px;' }, [ c || '{}' ]);
+                                    L.ui.showModal(_('編輯'), [ E('div', {}, [ ta, E('div', { 'class': 'right' }, [
+                                        E('button', { 'class': 'btn', 'click': L.ui.hideModal }, _('取消')),
+                                        E('button', { 'class': 'btn cbi-button-positive', 'click': function() { L.fs.write(confdir + '/' + file.name, ta.value).then(function() { L.ui.hideModal(); }); }}, _('儲存'))
+                                    ]) ]) ]);
+                                });
+                            }, this) }, _('編輯')),
+                            E('button', { 'class': 'btn cbi-button-remove', 'style': 'margin-left:4px;', 'click': L.bind(function(ev) { 
+                                if (confirm(_('刪除？'))) {
+                                    L.fs.remove(confdir + '/' + file.name).then(L.bind(function(){ 
+                                        ev.target.closest('tr').remove(); 
+                                    }, this)); 
+                                }
+                            }, this) } }, _('刪除'))
+                        ])
+                    ]));
+                }
+            }, this));
+
+            container.innerHTML = '';
+            container.appendChild(table);
+        }, this));
+    },
+
     render: function(data) {
         var isRunning = data;
         var confdir = L.uci.get('sing-box', 'main', 'confdir') || '/etc/sing-box';
@@ -124,59 +174,38 @@ return L.view.extend({
                     E('span', { 'id': 'sb_status_label', 'class': 'label', 'style': 'color:#fff; padding:4px 8px; border-radius:3px; background:' + (isRunning ? '#46a546' : '#999') + ';' }, isRunning ? _('運行中') : _('已停止')),
                     E('span', { 'id': 'sb_net_label', 'class': 'label', 'style': 'color:#fff; padding:4px 8px; border-radius:3px; margin-left:10px; background:' + labelBg + ';' }, labelText),
                     
-                    // 重啟服務按鈕 (加入統一高度樣式)
-                    E('button', { 'class': 'cbi-button cbi-button-reset', 'style': 'margin-left:auto; display:inline-flex; align-items:center; height:32px; box-sizing:border-box;', 'click': L.bind(function(ev) {
-						ev.target.textContent = _('正在重啟...');
-						window.sessionStorage.removeItem('sb_net_cache');
-						return this.doRestart().then(L.bind(function(){
-							ev.target.textContent = _('重啟服務');
-							setTimeout(L.bind(this.checkNetwork, this, true), 2000);
-						}, this));
-					}, this) }, _('重啟服務')),
+                    // 重啟服務按鈕（优化样式：自适应标准高度、椭圆胶囊形）
+                    E('button', { 'class': 'cbi-button cbi-button-reset', 'style': 'margin-left:auto; display:inline-flex; align-items:center; justify-content:center; padding:6px 20px; border-radius:100px; box-sizing:border-box;', 'click': L.bind(function(ev) {
+                        ev.target.textContent = _('正在重啟...');
+                        window.sessionStorage.removeItem('sb_net_cache');
+                        return this.doRestart().then(L.bind(function(){
+                            ev.target.textContent = _('重啟服務');
+                            setTimeout(L.bind(this.checkNetwork, this, true), 2000);
+                        }, this));
+                    }, this) }, _('重啟服務')),
 
-                    // 需求 1 & 优化需求：新建按鈕移動到此處，且高度與重啟服務按鈕完全一致
-                    E('button', { 'class': 'cbi-button cbi-button-add', 'style': 'margin-left:10px; display:inline-flex; align-items:center; height:32px; box-sizing:border-box;', 'click': function() { 
+                    // 新建按鈕（优化样式与局部刷新机制：自适应标准高度、椭圆胶囊形、无刷创建且自动置顶）
+                    E('button', { 'class': 'cbi-button cbi-button-add', 'style': 'margin-left:10px; display:inline-flex; align-items:center; justify-content:center; padding:6px 20px; border-radius:100px; box-sizing:border-box;', 'click': L.bind(function() { 
                         var name = prompt(_('新文件名:')); 
-                        if(name) L.fs.write(confdir + '/' + (name.endsWith('.json') ? name : name + '.json'), '{}').then(function(){ location.reload(); }); 
-                    }}, _('＋ 新建配置'))
+                        if(name) {
+                            var filename = name.endsWith('.json') ? name : name + '.json';
+                            L.fs.write(confdir + '/' + filename, '{}').then(L.bind(function(){ 
+                                var container = document.getElementById('sb_file_list_container');
+                                if (container) {
+                                    this.renderList(container, confdir, window.localStorage.getItem('sb_selected_conf'));
+                                }
+                            }, this));
+                        }
+                    }, this) }, _('＋ 新建配置'))
                 ])
             ]);
-		}, this);
+        }, this);
 
         var s2 = m.section(L.form.TypedSection, '_list', _('可用配置文件'));
         s2.render = L.bind(function() {
-            return L.fs.list(confdir).then(L.bind(function(files) {
-                var table = E('table', { 'class': 'table cbi-section-table' }, [
-                    E('tr', { 'class': 'tr cbi-section-table-titles' }, [
-                        E('th', { 'class': 'th', 'style': 'width:40px; text-align:center;' }, ''), 
-                        E('th', { 'class': 'th' }, _('檔案名稱')),
-                        E('th', { 'class': 'th', 'style': 'width:240px; text-align:center;' }, _('管理操作'))
-                    ])
-                ]);
-                files.forEach(L.bind(function(file) {
-                    if (file.name.endsWith('.json') && file.name !== 'config.json') {
-                        var isSelected = (file.name === selectedConf);
-                        table.appendChild(E('tr', { 'class': 'tr', 'data-filename': file.name }, [
-                            E('td', { 'class': 'td check-cell', 'style': 'text-align:center;' }, [ isSelected ? E('span', { 'style': 'color:#46a546; font-weight:bold;' }, '✔') : '' ]),
-                            E('td', { 'class': 'td name-cell', 'style': (isSelected ? 'font-weight:bold; color:#46a546;' : '') }, file.name),
-                            E('td', { 'class': 'td', 'style': 'text-align:center;' }, [
-                                E('button', { 'class': 'btn cbi-button-apply', 'click': L.bind(this.handleSwitch, this, file.name, confdir) }, isSelected ? _('生效中') : _('選用')),
-                                E('button', { 'class': 'btn cbi-button-neutral', 'style': 'margin-left:4px;', 'click': L.bind(function() {
-                                    L.fs.read(confdir + '/' + file.name).then(function(c) {
-                                        var ta = E('textarea', { 'style': 'width:100%; height:400px;' }, [ c || '{}' ]);
-                                        L.ui.showModal(_('編輯'), [ E('div', {}, [ ta, E('div', { 'class': 'right' }, [
-                                            E('button', { 'class': 'btn', 'click': L.ui.hideModal }, _('取消')),
-                                            E('button', { 'class': 'btn cbi-button-positive', 'click': function() { L.fs.write(confdir + '/' + file.name, ta.value).then(function() { L.ui.hideModal(); }); }}, _('儲存'))
-                                        ]) ]) ]);
-                                    });
-								}, this) }, _('編輯')),
-                                E('button', { 'class': 'btn cbi-button-remove', 'style': 'margin-left:4px;', 'click': function(ev) { if (confirm(_('刪除？'))) L.fs.remove(confdir + '/' + file.name).then(function(){ ev.target.closest('tr').remove(); }); } }, _('刪除'))
-                            ])
-                        ]));
-                    }
-                }, this));
-                return E('div', {}, [ table ]);
-            }, this));
+            var container = E('div', { 'id': 'sb_file_list_container' });
+            this.renderList(container, confdir, selectedConf);
+            return container;
         }, this);
 
         return m.render();
