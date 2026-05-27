@@ -26,11 +26,10 @@ return L.view.extend({
 		}).catch(function(){});
 	},
 
-	// 新增：語法檢查函數
+	// 語法檢查函數：僅用於選用時的最後檢查
 	doCheck: function(path) {
 		return L.fs.exec('/usr/bin/sing-box', ['check', '-c', path]).then(function(res) {
 			if (res.code !== 0) {
-				// 提取錯誤訊息 (stderr 或 stdout)
 				var err = res.stderr || res.stdout || _('未知語法錯誤');
 				throw new Error(err);
 			}
@@ -50,9 +49,8 @@ return L.view.extend({
 		
 		btn.disabled = true; btn.textContent = _('正在檢查...'); btn.style.background = '#ffc107';
 
-		// 1. 先執行語法檢查
+		// 選用時保留強制校驗，防止斷網
 		return this.doCheck(source).then(L.bind(function() {
-			// 2. 檢查通過，執行應用邏輯
 			btn.textContent = _('正在應用...');
 			return L.fs.read(source).then(function(content) {
 				return L.fs.write(target, content || '{}');
@@ -62,10 +60,9 @@ return L.view.extend({
 				setTimeout(function() { location.reload(); }, 1000);
 			}, this));
 		}, this)).catch(L.bind(function(e) {
-			// 檢查失敗或應用出錯
 			btn.disabled = false; btn.textContent = oldText; btn.style.background = '';
-			L.ui.showModal(_('配置語法錯誤'), [
-				E('pre', { 'style': 'background:#f8d7da; color:#721c24; padding:10px; border-radius:3px; white-space:pre-wrap; font-family:monospace;' }, e.message || e),
+			L.ui.showModal(_('該配置語法有誤，無法選用'), [
+				E('pre', { 'style': 'background:#f8d7da; color:#721c24; padding:10px; border-radius:3px; white-space:pre-wrap; font-family:monospace; max-height:300px; overflow:auto;' }, e.message || e),
 				E('div', { 'class': 'right' }, E('button', {'class':'btn','click':L.ui.hideModal}, _('關閉')))
 			]);
 		}, this));
@@ -129,19 +126,12 @@ return L.view.extend({
 										L.ui.showModal(_('編輯: %s').format(file.name), [ E('div', { 'style': 'padding:10px' }, [ ta, E('div', { 'class': 'right', 'style': 'margin-top:10px' }, [
 											E('button', { 'class': 'btn', 'click': L.ui.hideModal }, _('取消')),
 											E('button', { 'class': 'btn cbi-button-positive', 'style': 'margin-left:10px', 'click': L.bind(function(ev) {
-												var newContent = ta.value;
-												// 儲存前校驗：先寫入臨時文件
-												return L.fs.write('/tmp/sb_check.json', newContent).then(L.bind(function() {
-													return this.doCheck('/tmp/sb_check.json');
-												}, this)).then(function() {
-													// 校驗通過，寫入原文件
-													return L.fs.write(confdir + '/' + file.name, newContent).then(function() { 
-														L.ui.hideModal(); 
-														ui.addNotification(null, E('p', _('文件已儲存且校驗通過')), 'info');
-													});
-												}).catch(function(e) {
-													alert(_('語法錯誤，無法儲存：\n') + e.message);
-												});
+												// 儲存邏輯：直接寫入，不進行校驗，方便用戶慢慢修改
+												return L.fs.write(confdir + '/' + file.name, ta.value).then(function() { 
+													L.ui.hideModal(); 
+													// 使用 LuCI 標准通知
+													L.ui.addNotification(null, E('p', _('配置已儲存')), 'info');
+												}).catch(function(e) { alert(e.message); });
 											}, this)}, _('儲存'))
 										]) ]) ]);
 									}, this));
