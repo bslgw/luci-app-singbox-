@@ -9,32 +9,36 @@ return L.view.extend({
 	load: function() {
 		return Promise.all([
 			L.uci.load('sing-box'),
-			L.fs.exec('/bin/sh', ['-c', 'ps w | grep sing-box | grep -v grep']).then(function(res) {
+			L.fs.exec('sh', ['-c', 'ps w | grep sing-box | grep -v grep']).then(function(res) {
 				return (res.code === 0);
 			}).catch(function() { return false; })
 		]);
 	},
 
-	// 靜默聯網檢測
 	checkNetwork: function() {
 		var netEl = document.getElementById('sb_net_label');
-		return L.fs.exec('/usr/bin/ping', ['-c', '1', '-W', '2', '8.8.8.8']).then(function(res) {
+		// 不指定絕對路徑，直接調用 ping，由系統 PATH 決定
+		// 測試 8.8.8.8，1個包，2秒超時
+		return L.fs.exec('ping', ['-c', '1', '-W', '2', '8.8.8.8']).then(function(res) {
 			var isOnline = (res.code === 0);
 			if (netEl) {
 				var newText = isOnline ? _('聯網正常') : _('連接受阻');
-				// 僅當文字不同時才更新，避免不必要的 DOM 操作
+				var newBg = isOnline ? '#46a546' : '#dc3545';
 				if (netEl.textContent !== newText) {
 					netEl.textContent = newText;
+					netEl.style.background = newBg;
 				}
 			}
 		}).catch(function() {
-			if (netEl) netEl.textContent = _('連接受阻');
+			if (netEl) {
+				netEl.textContent = _('連接受阻');
+				netEl.style.background = '#dc3545';
+			}
 		});
 	},
 
 	checkStatus: function() {
-		// 進程狀態檢查
-		L.fs.exec('/bin/sh', ['-c', 'ps w | grep sing-box | grep -v grep']).then(function(res) {
+		L.fs.exec('sh', ['-c', 'ps w | grep sing-box | grep -v grep']).then(function(res) {
 			var isRunning = (res.code === 0);
 			var el = document.getElementById('sb_status_label');
 			if (el) {
@@ -43,7 +47,6 @@ return L.view.extend({
 			}
 		}).catch(function(){});
 
-		// 靜默執行聯網檢查
 		this.checkNetwork();
 	},
 
@@ -87,7 +90,6 @@ return L.view.extend({
 				this.statusTimer = window.setInterval(L.bind(this.checkStatus, this), 5000);
 			}
 
-			// 頁面渲染後立即執行一次檢測
 			this.checkNetwork();
 
 			return E('div', { 'class': 'cbi-value', 'style': 'display:flex; align-items:center; border-bottom:1px solid #eee; padding-bottom:10px;' }, [
@@ -98,18 +100,20 @@ return L.view.extend({
 						'class': 'label', 
 						'style': 'color:#fff; padding:4px 8px; border-radius:3px; background:' + (isRunning ? '#46a546' : '#999') + ';' 
 					}, isRunning ? _('運行中') : _('已停止')),
-					// 聯網狀態標籤（不設背景色，僅文字）
+					
+					// 初始默認顯示紅色塊，等待第一次檢測結果更新
 					E('span', { 
 						'id': 'sb_net_label', 
-						'style': 'margin-left:10px; font-weight:bold; color:#555;'
-					}, ''), 
+						'class': 'label', 
+						'style': 'color:#fff; padding:4px 8px; border-radius:3px; margin-left:10px; background:#dc3545;' 
+					}, _('連接受阻')), 
+
 					E('strong', { 'style': 'margin-left:20px; color:#666;' }, _('目錄: ')),
 					E('span', { 'style': 'font-family:monospace; margin-left:5px;' }, confdir),
 					E('button', { 'class': 'cbi-button cbi-button-reset', 'style': 'margin-left:auto;', 'click': L.bind(function(ev) {
 						ev.target.textContent = _('正在重啟...');
 						return this.doRestart().then(L.bind(function(){
 							ev.target.textContent = _('重啟服務'); 
-							// 重啟後給予 2 秒緩衝再更新狀態，確保聯網檢測準確
 							setTimeout(L.bind(this.checkStatus, this), 2000);
 						}, this));
 					}, this) }, _('重啟服務'))
@@ -117,6 +121,7 @@ return L.view.extend({
 			]);
 		}, this);
 
+		// 下方列表代碼保持不變...
 		var s2 = m.section(L.form.TypedSection, '_list', _('可用配置文件'));
 		s2.anonymous = true;
 		s2.render = L.bind(function() {
