@@ -14,7 +14,7 @@ daed内置支持singbox，但不支持hy2的端口跳跃，brutal等
 2、在daed内配置socket
 
 3、修改节点的json，把socket作为节点的流量入口
-
+```
 "inbounds": [
     {
       "type": "socks",
@@ -24,7 +24,7 @@ daed内置支持singbox，但不支持hy2的端口跳跃，brutal等
       "udp_fragment": true
     }
   ]
-
+```
 
 
 
