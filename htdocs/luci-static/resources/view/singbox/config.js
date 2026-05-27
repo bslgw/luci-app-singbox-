@@ -105,8 +105,10 @@ return L.view.extend({
             var table = E('table', { 'class': 'table cbi-section-table' }, [
                 E('tr', { 'class': 'tr cbi-section-table-titles' }, [
                     E('th', { 'class': 'th', 'style': 'width:40px; text-align:center;' }, ''), 
-                    E('th', { 'class': 'th' }, _('檔案名稱')),
-                    // 优化点：把表头管理操作列的宽度锁死在 260px
+                    E('th', { 'class': 'th', 'style': 'width:auto;' }, _('檔案名稱')),
+                    // 新增：域名與 IP 表頭列
+                    E('th', { 'class': 'th', 'style': 'width:auto;' }, _('域名 / IP')),
+                    // 操作列保持鎖死寬度
                     E('th', { 'class': 'th', 'style': 'width:260px; text-align:center;' }, _('管理操作'))
                 ])
             ]);
@@ -114,11 +116,40 @@ return L.view.extend({
             files.forEach(L.bind(function(file) {
                 if (file.name.endsWith('.json') && file.name !== 'config.json') {
                     var isSelected = (file.name === selectedConf);
+                    
+                    // 新增：域名/IP 數據載體單元格（初始空白）
+                    var infoCell = E('td', { 'class': 'td', 'style': 'vertical-align:middle; color:#666; font-size:0.9em; word-break:break-word; padding-right:15px;' }, '');
+
+                    // 異步讀取 JSON 並靜默解析提取 server 字段
+                    L.fs.read(confdir + '/' + file.name).then(function(content) {
+                        if (!content) return;
+                        try {
+                            var json = JSON.parse(content);
+                            var servers = [];
+                            if (json.outbounds && Array.isArray(json.outbounds)) {
+                                json.outbounds.forEach(function(out) {
+                                    if (out.server && typeof out.server === 'string' && out.server !== '127.0.0.1' && out.server !== '::1') {
+                                        servers.push(out.server);
+                                    }
+                                });
+                            }
+                            if (servers.length > 0) {
+                                // 數組去重並拼接
+                                var unique = servers.filter(function(v, i, a) { return a.indexOf(v) === i; });
+                                infoCell.textContent = unique.join(', ');
+                            }
+                        } catch(e) {
+                            // 解析報錯則靜默失敗，保持空白
+                        }
+                    });
+
                     table.appendChild(E('tr', { 'class': 'tr', 'data-filename': file.name }, [
-                        E('td', { 'class': 'td check-cell', 'style': 'text-align:center;' }, [ isSelected ? E('span', { 'style': 'color:#46a546; font-weight:bold;' }, '✔') : '' ]),
-                        E('td', { 'class': 'td name-cell', 'style': (isSelected ? 'font-weight:bold; color:#46a546;' : '') }, file.name),
-                        // 核心优化点：添加 white-space:nowrap 强力禁止折行，并固定 width 彻底消除一晃一晃的视觉差
-                        E('td', { 'class': 'td', 'style': 'text-align:center; white-space:nowrap; width:260px;' }, [
+                        E('td', { 'class': 'td check-cell', 'style': 'text-align:center; vertical-align:middle;' }, [ isSelected ? E('span', { 'style': 'color:#46a546; font-weight:bold;' }, '✔') : '' ]),
+                        E('td', { 'class': 'td name-cell', 'style': 'vertical-align:middle; ' + (isSelected ? 'font-weight:bold; color:#46a546;' : '') }, file.name),
+                        // 插入：解析出的域名與 IP 列
+                        infoCell,
+                        // 保持優化過的無晃動按鈕列，增加 vertical-align:middle 保證整行完美居中
+                        E('td', { 'class': 'td', 'style': 'text-align:center; vertical-align:middle; white-space:nowrap; width:260px;' }, [
                             E('button', { 'class': 'btn cbi-button-apply', 'click': L.bind(this.handleSwitch, this, file.name, confdir) }, isSelected ? _('生效中') : _('選用')),
                             E('button', { 'class': 'btn cbi-button-neutral', 'style': 'margin-left:4px;', 'click': L.bind(function() {
                                 L.fs.read(confdir + '/' + file.name).then(function(c) {
@@ -177,7 +208,6 @@ return L.view.extend({
                     E('span', { 'id': 'sb_status_label', 'class': 'label', 'style': 'color:#fff; padding:4px 8px; border-radius:3px; background:' + (isRunning ? '#46a546' : '#999') + ';' }, isRunning ? _('運行中') : _('已停止')),
                     E('span', { 'id': 'sb_net_label', 'class': 'label', 'style': 'color:#fff; padding:4px 8px; border-radius:3px; margin-left:10px; background:' + labelBg + ';' }, labelText),
                     
-                    // 1. 重啟 sing-box 按鈕（完美原力绿、毫秒级状态同步更新）
                     E('button', { 'class': 'cbi-button', 'style': 'margin-left:auto; display:inline-flex; align-items:center; justify-content:center; padding:6px 20px; border-radius:100px; box-sizing:border-box; background:#46a546 !important; color:#fff !important; border:none;', 'click': L.bind(function(ev) {
                         ev.target.textContent = _('正在重啟...');
                         window.sessionStorage.removeItem('sb_net_cache');
@@ -191,7 +221,6 @@ return L.view.extend({
                         }, this));
                     }, this) }, _('重啟 sing-box')),
 
-                    // 2. 停止 sing-box 按鈕（高级优雅灰、毫秒级零延迟双状态同步更新）
                     E('button', { 'class': 'cbi-button', 'style': 'margin-left:10px; display:inline-flex; align-items:center; justify-content:center; padding:6px 20px; border-radius:100px; box-sizing:border-box; background:#999 !important; color:#fff !important; border:none;', 'click': L.bind(function(ev) {
                         ev.target.textContent = _('正在停止...');
                         window.sessionStorage.removeItem('sb_net_cache');
@@ -205,30 +234,4 @@ return L.view.extend({
                         }, this));
                     }, this) }, _('停止 sing-box')),
 
-                    // 3. 新建配置按鈕（保持胶囊形、继承 LuCI 基础高度样式）
-                    E('button', { 'class': 'cbi-button cbi-button-add', 'style': 'margin-left:10px; display:inline-flex; align-items:center; justify-content:center; padding:6px 20px; border-radius:100px; box-sizing:border-box;', 'click': L.bind(function() { 
-                        var name = prompt(_('新文件名:')); 
-                        if(name) {
-                            var filename = name.endsWith('.json') ? name : name + '.json';
-                            L.fs.write(confdir + '/' + filename, '{}').then(L.bind(function(){ 
-                                var container = document.getElementById('sb_file_list_container');
-                                if (container) {
-                                    this.renderList(container, confdir, window.localStorage.getItem('sb_selected_conf'));
-                                }
-                            }, this));
-                        }
-                    }, this) }, _('＋ 新建配置'))
-                ])
-            ]);
-        }, this);
-
-        var s2 = m.section(L.form.TypedSection, '_list', _('可用配置文件'));
-        s2.render = L.bind(function() {
-            var container = E('div', { 'id': 'sb_file_list_container' });
-            this.renderList(container, confdir, selectedConf);
-            return container;
-        }, this);
-
-        return m.render();
-    }
-});
+                    E('button', { 'class': 'cbi-button cbi-button-add', 'style': 'margin-left:10px; display:inline-flex; align-items:center; justify-content:center; padding:6px 20px; border-radius:100px; box-sizing:border-box;', 'click': L.bind(function() {
