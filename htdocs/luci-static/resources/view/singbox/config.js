@@ -32,13 +32,10 @@ return L.view.extend({
             netDot.style.background = '#17a2b8'; 
         }
 
-        // v6.8 终极立体探测脚本：ubus原生提取 -> 智能路由过滤 -> 物理网关兜底
-        var cmdCn = 'I=$(jsonfilter -s "$(ubus call network.interface.wan status 2>/dev/null)" -e "@.l3_device"); ' +
-                    '[ -z "$I" ] && I=$(jsonfilter -s "$(ubus call network.interface.wan6 status 2>/dev/null)" -e "@.l3_device"); ' +
-                    '[ -z "$I" ] && I=$(ip route show default | grep -oE \'dev [^ ]+\' | awk \'{print $2}\' | grep -vE \'^(tun|br-|lo|link|docker)\' | head -n 1); ' +
-                    'G=$(ip route show default | grep -vE \'tun\' | grep -oE \'via [^ ]+\' | awk \'{print $2}\' | head -n 1); ' +
-                    'R=1; if [ -n "$I" ]; then ping -c 1 -w 2 -I "$I" 223.5.5.5 >/dev/null 2>&1 && R=0; else ping -c 1 -w 2 223.5.5.5 >/dev/null 2>&1 && R=0; fi; ' +
-                    '[ $R -ne 0 ] && [ -n "$G" ] && ping -c 1 -w 2 "$G" >/dev/null 2>&1 && R=0; exit $R';
+        // v6.9 网页级真实探针：优先测试HTTP直连（完美契合分流规则），DNS异常时降级死磕真实物理网关
+        var cmdCn = 'wget -q --spider --timeout=2 http://www.baidu.com && exit 0; ' +
+                    'G=$(jsonfilter -s "$(ubus call network.interface.wan status 2>/dev/null)" -e "@.route[*].nexthop" | head -n 1); ' +
+                    '[ -n "$G" ] && ping -c 1 -w 2 "$G" >/dev/null 2>&1 && exit 0; exit 1';
 
         var checkCn = L.fs.exec('/bin/sh', ['-c', cmdCn]).catch(function() { return { code: 1 }; });
         var checkGlobal = L.fs.exec('/bin/sh', ['-c', 'wget -q --spider --timeout=2 http://www.google.com && exit 0 || exit 1']).catch(function() { return { code: 1 }; });
@@ -234,13 +231,14 @@ return L.view.extend({
                     E('label', { 'class': 'cbi-value-title', 'style': 'width:15%' }, _('運行狀態')),
                     E('div', { 'class': 'cbi-value-field', 'style': 'width:85%; display:flex; align-items:center;' }, [
                         
-                        E('span', { 'id': 'sb_status_label', 'style': 'display:inline-flex; align-items:center; gap:6px;' }, [
-                            E('span', { 'id': 'sb_status_dot', 'style': 'display:inline-block; width:8px; height:8px; border-radius:50%; background:' + (isRunning ? '#46a546' : '#999') + ';' }),
+                        // 真实活动指示灯：尺寸放大至 10px，提升视觉层级
+                        E('span', { 'id': 'sb_status_label', 'style': 'display:inline-flex; align-items:center; gap:8px;' }, [
+                            E('span', { 'id': 'sb_status_dot', 'style': 'display:inline-block; width:10px; height:10px; border-radius:50%; background:' + (isRunning ? '#46a546' : '#999') + ';' }),
                             E('span', { 'id': 'sb_status_text', 'style': 'font-weight:bold; color:#444;' }, isRunning ? _('運行中') : _('已停止'))
                         ]),
 
-                        E('span', { 'id': 'sb_net_label', 'style': 'display:inline-flex; align-items:center; gap:6px; margin-left:20px;' }, [
-                            E('span', { 'id': 'sb_net_dot', 'style': 'display:inline-block; width:8px; height:8px; border-radius:50%; background:' + labelBg + ';' }),
+                        E('span', { 'id': 'sb_net_label', 'style': 'display:inline-flex; align-items:center; gap:8px; margin-left:20px;' }, [
+                            E('span', { 'id': 'sb_net_dot', 'style': 'display:inline-block; width:10px; height:10px; border-radius:50%; background:' + labelBg + ';' }),
                             E('span', { 'id': 'sb_net_text', 'style': 'font-weight:bold; color:#444;' }, labelText)
                         ]),
                         
@@ -289,6 +287,7 @@ return L.view.extend({
                     ])
                 ]),
                 
+                // 底部状态说明：保持原样 8px，与上方指示灯拉开明显的层级感
                 E('div', { 'style': 'display:flex; align-items:center; width:100%;' }, [
                     E('div', { 'style': 'width:15%' }, ''), 
                     E('div', { 'style': 'width:85%; display:flex; gap:16px; font-size:12px; color:#666; user-select:none;' }, [
