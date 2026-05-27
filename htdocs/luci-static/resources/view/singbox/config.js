@@ -60,7 +60,6 @@ return L.view.extend({
                 el.textContent = isRunning ? _('運行中') : _('已停止');
                 el.style.background = isRunning ? '#46a546' : '#999';
             }
-            // 状态检测完成后紧接着触发网络检测，保持时间轴完全一致
             this.checkNetwork(false);
         }, this)).catch(function(){});
     },
@@ -107,7 +106,8 @@ return L.view.extend({
                 E('tr', { 'class': 'tr cbi-section-table-titles' }, [
                     E('th', { 'class': 'th', 'style': 'width:40px; text-align:center;' }, ''), 
                     E('th', { 'class': 'th' }, _('檔案名稱')),
-                    E('th', { 'class': 'th', 'style': 'width:240px; text-align:center;' }, _('管理操作'))
+                    // 优化点：把表头管理操作列的宽度锁死在 260px
+                    E('th', { 'class': 'th', 'style': 'width:260px; text-align:center;' }, _('管理操作'))
                 ])
             ]);
 
@@ -117,7 +117,8 @@ return L.view.extend({
                     table.appendChild(E('tr', { 'class': 'tr', 'data-filename': file.name }, [
                         E('td', { 'class': 'td check-cell', 'style': 'text-align:center;' }, [ isSelected ? E('span', { 'style': 'color:#46a546; font-weight:bold;' }, '✔') : '' ]),
                         E('td', { 'class': 'td name-cell', 'style': (isSelected ? 'font-weight:bold; color:#46a546;' : '') }, file.name),
-                        E('td', { 'class': 'td', 'style': 'text-align:center;' }, [
+                        // 核心优化点：添加 white-space:nowrap 强力禁止折行，并固定 width 彻底消除一晃一晃的视觉差
+                        E('td', { 'class': 'td', 'style': 'text-align:center; white-space:nowrap; width:260px;' }, [
                             E('button', { 'class': 'btn cbi-button-apply', 'click': L.bind(this.handleSwitch, this, file.name, confdir) }, isSelected ? _('生效中') : _('選用')),
                             E('button', { 'class': 'btn cbi-button-neutral', 'style': 'margin-left:4px;', 'click': L.bind(function() {
                                 L.fs.read(confdir + '/' + file.name).then(function(c) {
@@ -176,34 +177,30 @@ return L.view.extend({
                     E('span', { 'id': 'sb_status_label', 'class': 'label', 'style': 'color:#fff; padding:4px 8px; border-radius:3px; background:' + (isRunning ? '#46a546' : '#999') + ';' }, isRunning ? _('運行中') : _('已停止')),
                     E('span', { 'id': 'sb_net_label', 'class': 'label', 'style': 'color:#fff; padding:4px 8px; border-radius:3px; margin-left:10px; background:' + labelBg + ';' }, labelText),
                     
-                    // 1. 重啟 sing-box 按鈕（已重塑为：完美原力绿、毫秒级状态同步更新）
+                    // 1. 重啟 sing-box 按鈕（完美原力绿、毫秒级状态同步更新）
                     E('button', { 'class': 'cbi-button', 'style': 'margin-left:auto; display:inline-flex; align-items:center; justify-content:center; padding:6px 20px; border-radius:100px; box-sizing:border-box; background:#46a546 !important; color:#fff !important; border:none;', 'click': L.bind(function(ev) {
                         ev.target.textContent = _('正在重啟...');
                         window.sessionStorage.removeItem('sb_net_cache');
                         
-                        // 【瞬间同步反馈】拒绝等待，立刻在前端假定成功更新 UI
                         var sEl = document.getElementById('sb_status_label'); if(sEl) { sEl.textContent = _('運行中'); sEl.style.background = '#46a546'; }
                         var nEl = document.getElementById('sb_net_label'); if(nEl) { nEl.textContent = _('檢測中...'); nEl.style.background = '#ffc107'; }
 
                         return this.doRestart().then(L.bind(function(){
                             ev.target.textContent = _('重啟 sing-box');
-                            // 后台 1 秒后进行真实状态校验校准
                             setTimeout(L.bind(this.checkStatus, this), 1000);
                         }, this));
                     }, this) }, _('重啟 sing-box')),
 
-                    // 2. 停止 sing-box 按鈕（已重塑为：高级优雅灰、毫秒级零延迟双状态同步更新）
+                    // 2. 停止 sing-box 按鈕（高级优雅灰、毫秒级零延迟双状态同步更新）
                     E('button', { 'class': 'cbi-button', 'style': 'margin-left:10px; display:inline-flex; align-items:center; justify-content:center; padding:6px 20px; border-radius:100px; box-sizing:border-box; background:#999 !important; color:#fff !important; border:none;', 'click': L.bind(function(ev) {
                         ev.target.textContent = _('正在停止...');
                         window.sessionStorage.removeItem('sb_net_cache');
                         
-                        // 【瞬间同步反馈】拒绝等待，立刻在前端同步切为停止和检测状态，解决视差和断层感
                         var sEl = document.getElementById('sb_status_label'); if(sEl) { sEl.textContent = _('已停止'); sEl.style.background = '#999'; }
                         var nEl = document.getElementById('sb_net_label'); if(nEl) { nEl.textContent = _('檢測中...'); nEl.style.background = '#ffc107'; }
 
                         return this.doStop().then(L.bind(function(){
                             ev.target.textContent = _('停止 sing-box');
-                            // 后台 600毫秒后执行一次真实硬件状态对齐
                             setTimeout(L.bind(this.checkStatus, this), 600);
                         }, this));
                     }, this) }, _('停止 sing-box')),
