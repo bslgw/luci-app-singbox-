@@ -1,3 +1,4 @@
+<img width="1156" height="408" alt="捕获" src="https://github.com/user-attachments/assets/8f75b50e-dfb3-4651-a3ed-9f0d53bfee87" />
 # luci-app-sing-box-bridge
 
 一個專為 OpenWrt 22.03+ 設計的極簡 sing-box 管理界面，旨在作為 **daed** 等前端的外置高性能內核管理工具。
