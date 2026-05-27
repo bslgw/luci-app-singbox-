@@ -19,15 +19,18 @@ define Build/Compile
 endef
 
 define Package/luci-app-singbox/install
-	# 1. 安装菜单配置文件
 	$(INSTALL_DIR) $(1)/usr/share/luci/menu.d
 	$(INSTALL_DATA) ./root/usr/share/luci/menu.d/luci-app-singbox.json $(1)/usr/share/luci/menu.d/luci-app-singbox.json
 
-	# 2. 安装 Lua 控制器 (解决侧边栏不显示的关键)
+	# 确保创建控制器的目录
 	$(INSTALL_DIR) $(1)/usr/lib/lua/luci/controller
 	$(INSTALL_DATA) ./luasrc/controller/singbox.lua $(1)/usr/lib/lua/luci/controller/singbox.lua
 
-	# 3. 安装前端 JS 视图文件
+	# 确保创建视图文件的目录 (配合上面的 .htm 中转)
+	$(INSTALL_DIR) $(1)/usr/lib/lua/luci/view/singbox
+	$(INSTALL_DATA) ./luasrc/view/singbox/config.htm $(1)/usr/lib/lua/luci/view/singbox/config.htm
+
+	# 确保静态资源目录
 	$(INSTALL_DIR) $(1)/www/luci-static/resources/view/singbox
 	$(INSTALL_DATA) ./htdocs/luci-static/resources/view/singbox/config.js $(1)/www/luci-static/resources/view/singbox/config.js
 endef
