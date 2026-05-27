@@ -6,32 +6,30 @@
 'import uci';
 
 return L.view.extend({
-	// 使用原生 setInterval 替代 poll，徹底解決 L.poll.add 報錯
-		checkStatus: function(isRunning) {
-		// 如果調用時已經知道狀態(isRunning是布爾值)，直接更新UI，否則去系統查
-		var updateUI = function(running) {
-			var el = document.getElementById('sb_status_label');
-			if (el) {
-				el.textContent = running ? _('運行中') : _('已停止');
-				el.style.background = running ? '#46a546' : '#999';
-			}
-		};
-
-		if (typeof isRunning === 'boolean') {
-			updateUI(isRunning);
-			return Promise.resolve();
-		}
-
-		return L.fs.exec('/usr/bin/pgrep', ['sing-box']).then(function(res) {
-			updateUI(res.code === 0);
-		}).catch(function(){
-			updateUI(false);
-		});
+	// 1. 使用 load 函數預先獲取數據，確保頁面打開時已有狀態
+	load: function() {
+		return Promise.all([
+			L.uci.load('sing-box'),
+			// 使用 ps 檢查進程，grep -v 排除 grep 自身，這是最準確的方法
+			L.fs.exec('/bin/sh', ['-c', 'ps w | grep sing-box | grep -v grep']).then(function(res) {
+				return (res.code === 0);
+			}).catch(function() { return false; })
+		]);
 	},
 
+	checkStatus: function() {
+		return L.fs.exec('/bin/sh', ['-c', 'ps w | grep sing-box | grep -v grep']).then(function(res) {
+			var isRunning = (res.code === 0);
+			var el = document.getElementById('sb_status_label');
+			if (el) {
+				el.textContent = isRunning ? _('運行中') : _('已停止');
+				el.style.background = isRunning ? '#46a546' : '#999';
+			}
+		}).catch(function(){});
+	},
 
 	doRestart: function() {
-		return L.fs.exec('/bin/sh', ['-c', '/etc/init.d/sing-box stop && /etc/init.d/sing-box start']);
+		return L.fs.exec('/etc/init.d/sing-box', ['restart']);
 	},
 
 	handleSwitch: function(filename, confdir, ev) {
@@ -56,26 +54,31 @@ return L.view.extend({
 		}, this));
 	},
 
-	render: function() {
-		var m, s, o;
+	render: function(data) {
+		// data[0] 是 uci 數據, data[1] 是我們在 load 預檢測的運行狀態
+		var isRunning = data[1];
+		var confdir = L.uci.get('sing-box', 'main', 'confdir') || '/etc/sing-box';
 
-		m = new L.form.Map('sing-box', _('Sing-box Bridge'), _('SING-BOX 服務管理'));
-
-		s = m.section(L.form.TypedSection, '_status', _('服務控制'));
+		var m = new L.form.Map('sing-box', _('Sing-box Bridge'), _('SING-BOX 服務管理'));
+		var s = m.section(L.form.TypedSection, '_status', _('服務控制'));
 		s.anonymous = true;
+
 		s.render = L.bind(function() {
-			var confdir = L.uci.get('sing-box', 'main', 'confdir') || '/etc/sing-box';
-			
-			// 立即執行第一次狀態檢查
-			this.checkStatus();
-			
-			// 使用 JS 原生定時器，每 5 秒刷新一次狀態標籤
-			window.setInterval(L.bind(this.checkStatus, this), 5000);
+			// 啟動定時監控
+			if (!this.statusTimer) {
+				this.statusTimer = window.setInterval(L.bind(this.checkStatus, this), 5000);
+			}
 
 			return E('div', { 'class': 'cbi-value', 'style': 'display:flex; align-items:center; border-bottom:1px solid #eee; padding-bottom:10px;' }, [
 				E('label', { 'class': 'cbi-value-title', 'style': 'width:15%' }, _('運行狀態')),
 				E('div', { 'class': 'cbi-value-field', 'style': 'width:85%; display:flex; align-items:center;' }, [
-					E('span', { 'id': 'sb_status_label', 'class': 'label', 'style': 'color:#fff; padding:4px 8px; border-radius:3px; background:#999;' }, _('檢測中...')),
+					// 這裡根據 load 得到的結果直接寫入 HTML，實現秒開
+					E('span', { 
+						'id': 'sb_status_label', 
+						'class': 'label', 
+						'style': 'color:#fff; padding:4px 8px; border-radius:3px; background:' + (isRunning ? '#46a546' : '#999') + ';' 
+					}, isRunning ? _('運行中') : _('已停止')),
+					
 					E('strong', { 'style': 'margin-left:20px; color:#666;' }, _('目錄: ')),
 					E('span', { 'style': 'font-family:monospace; margin-left:5px;' }, confdir),
 					E('button', { 'class': 'cbi-button cbi-button-reset', 'style': 'margin-left:auto;', 'click': L.bind(function(ev) {
@@ -88,10 +91,10 @@ return L.view.extend({
 			]);
 		}, this);
 
-		s = m.section(L.form.TypedSection, '_list', _('可用配置文件'));
-		s.anonymous = true;
-		s.render = L.bind(function() {
-			var confdir = L.uci.get('sing-box', 'main', 'confdir') || '/etc/sing-box';
+		// 配置文件列表部分
+		var s2 = m.section(L.form.TypedSection, '_list', _('可用配置文件'));
+		s2.anonymous = true;
+		s2.render = L.bind(function() {
 			return L.fs.list(confdir).then(L.bind(function(files) {
 				var table = E('table', { 'class': 'table cbi-section-table' }, [
 					E('tr', { 'class': 'tr cbi-section-table-titles' }, [
