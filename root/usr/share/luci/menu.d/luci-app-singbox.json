@@ -1,9 +1,12 @@
 {
-	"admin/services/singbox": {
-		"title": "Sing-box Bridge",
-		"action": {
-			"type": "view",
-			"path": "singbox/config"
-		}
-	}
+    "admin/services/singbox": {
+        "title": "Sing-box Bridge",
+        "action": {
+            "type": "view",
+            "path": "singbox/config"
+        },
+        "depends": {
+            "acl": [ "luci-app-sing-box" ]
+        }
+    }
 }
