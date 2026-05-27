@@ -6,7 +6,7 @@
 'import uci';
 
 return L.view.extend({
-    // 需求 2：隱藏 OpenWrt 原生的三個底部按鈕
+    // 隱藏 OpenWrt 原生的三個底部按鈕
     handleSaveApply: null,
     handleSave: null,
     handleReset: null,
@@ -53,23 +53,22 @@ return L.view.extend({
     },
 
     checkStatus: function() {
-        L.fs.exec('sh', ['-c', 'ps w | grep sing-box | grep -v grep']).then(function(res) {
+        return L.fs.exec('sh', ['-c', 'ps w | grep sing-box | grep -v grep']).then(L.bind(function(res) {
             var isRunning = (res.code === 0);
             var el = document.getElementById('sb_status_label');
             if (el) {
                 el.textContent = isRunning ? _('運行中') : _('已停止');
                 el.style.background = isRunning ? '#46a546' : '#999';
             }
-        }).catch(function(){});
-
-        this.checkNetwork(false);
+            // 状态检测完成后紧接着触发网络检测，保持时间轴完全一致
+            this.checkNetwork(false);
+        }, this)).catch(function(){});
     },
 
     doRestart: function() {
         return L.fs.exec('/etc/init.d/sing-box', ['restart']);
     },
 
-    // 执行停止服务命令
     doStop: function() {
         return L.fs.exec('/etc/init.d/sing-box', ['stop']);
     },
@@ -177,28 +176,39 @@ return L.view.extend({
                     E('span', { 'id': 'sb_status_label', 'class': 'label', 'style': 'color:#fff; padding:4px 8px; border-radius:3px; background:' + (isRunning ? '#46a546' : '#999') + ';' }, isRunning ? _('運行中') : _('已停止')),
                     E('span', { 'id': 'sb_net_label', 'class': 'label', 'style': 'color:#fff; padding:4px 8px; border-radius:3px; margin-left:10px; background:' + labelBg + ';' }, labelText),
                     
-                    // 1. 重啟 sing-box 按鈕（修改了文字、保持椭圆胶囊样式）
-                    E('button', { 'class': 'cbi-button cbi-button-reset', 'style': 'margin-left:auto; display:inline-flex; align-items:center; justify-content:center; padding:6px 20px; border-radius:100px; box-sizing:border-box;', 'click': L.bind(function(ev) {
+                    // 1. 重啟 sing-box 按鈕（已重塑为：完美原力绿、毫秒级状态同步更新）
+                    E('button', { 'class': 'cbi-button', 'style': 'margin-left:auto; display:inline-flex; align-items:center; justify-content:center; padding:6px 20px; border-radius:100px; box-sizing:border-box; background:#46a546 !important; color:#fff !important; border:none;', 'click': L.bind(function(ev) {
                         ev.target.textContent = _('正在重啟...');
                         window.sessionStorage.removeItem('sb_net_cache');
+                        
+                        // 【瞬间同步反馈】拒绝等待，立刻在前端假定成功更新 UI
+                        var sEl = document.getElementById('sb_status_label'); if(sEl) { sEl.textContent = _('運行中'); sEl.style.background = '#46a546'; }
+                        var nEl = document.getElementById('sb_net_label'); if(nEl) { nEl.textContent = _('檢測中...'); nEl.style.background = '#ffc107'; }
+
                         return this.doRestart().then(L.bind(function(){
                             ev.target.textContent = _('重啟 sing-box');
+                            // 后台 1 秒后进行真实状态校验校准
                             setTimeout(L.bind(this.checkStatus, this), 1000);
                         }, this));
                     }, this) }, _('重啟 sing-box')),
 
-                    // 2. 新增：停止 sing-box 按鈕（完美嵌入、状态瞬间联动检测）
-                    E('button', { 'class': 'cbi-button cbi-button-remove', 'style': 'margin-left:10px; display:inline-flex; align-items:center; justify-content:center; padding:6px 20px; border-radius:100px; box-sizing:border-box;', 'click': L.bind(function(ev) {
+                    // 2. 停止 sing-box 按鈕（已重塑为：高级优雅灰、毫秒级零延迟双状态同步更新）
+                    E('button', { 'class': 'cbi-button', 'style': 'margin-left:10px; display:inline-flex; align-items:center; justify-content:center; padding:6px 20px; border-radius:100px; box-sizing:border-box; background:#999 !important; color:#fff !important; border:none;', 'click': L.bind(function(ev) {
                         ev.target.textContent = _('正在停止...');
                         window.sessionStorage.removeItem('sb_net_cache');
+                        
+                        // 【瞬间同步反馈】拒绝等待，立刻在前端同步切为停止和检测状态，解决视差和断层感
+                        var sEl = document.getElementById('sb_status_label'); if(sEl) { sEl.textContent = _('已停止'); sEl.style.background = '#999'; }
+                        var nEl = document.getElementById('sb_net_label'); if(nEl) { nEl.textContent = _('檢測中...'); nEl.style.background = '#ffc107'; }
+
                         return this.doStop().then(L.bind(function(){
                             ev.target.textContent = _('停止 sing-box');
-                            // 停止成功后立刻主动调用状态更新，前端无延迟刷新
-                            this.checkStatus();
+                            // 后台 600毫秒后执行一次真实硬件状态对齐
+                            setTimeout(L.bind(this.checkStatus, this), 600);
                         }, this));
                     }, this) }, _('停止 sing-box')),
 
-                    // 3. 新建配置按鈕（保持完美的自适应高度及胶囊形样式）
+                    // 3. 新建配置按鈕（保持胶囊形、继承 LuCI 基础高度样式）
                     E('button', { 'class': 'cbi-button cbi-button-add', 'style': 'margin-left:10px; display:inline-flex; align-items:center; justify-content:center; padding:6px 20px; border-radius:100px; box-sizing:border-box;', 'click': L.bind(function() { 
                         var name = prompt(_('新文件名:')); 
                         if(name) {
