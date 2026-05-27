@@ -28,12 +28,12 @@ return L.view.extend({
 
         var cached = this.getCache();
 
-        if (isExplicit && !cached) {
+        if (isExplicit) {
             netEl.textContent = _('連通性測試中...');
             netEl.style.background = '#17a2b8'; 
         }
 
-        var checkCn = L.fs.exec('/bin/sh', ['-c', 'wget -q --spider --timeout=2 http://www.baidu.com && exit 0 || exit 1']).catch(function() { return { code: 1 }; });
+        var checkCn = L.fs.exec('/bin/sh', ['-c', 'ping -c 1 -w 2 223.5.5.5 && exit 0 || exit 1']).catch(function() { return { code: 1 }; });
         var checkGlobal = L.fs.exec('/bin/sh', ['-c', 'wget -q --spider --timeout=2 http://www.google.com && exit 0 || exit 1']).catch(function() { return { code: 1 }; });
 
         Promise.all([checkCn, checkGlobal]).then(L.bind(function(results) {
@@ -51,7 +51,7 @@ return L.view.extend({
                 state = 'offline'; text = _('網路已斷開'); color = '#dc3545'; 
             }
 
-            if (this.getCache() !== state) {
+            if (this.getCache() !== state || isExplicit) {
                 netEl.textContent = text;
                 netEl.style.background = color;
                 this.setCache(state);
@@ -102,6 +102,9 @@ return L.view.extend({
                 row.querySelector('.cbi-button-apply').textContent = isTarget ? _('生效中') : _('選用');
             });
             btn.disabled = false;
+
+            window.sessionStorage.removeItem('sb_net_cache');
+            this.checkNetwork(true);
         }, this)).catch(function(e) { 
             btn.disabled = false; btn.textContent = _('選用');
             alert(e.message); 
