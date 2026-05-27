@@ -15,15 +15,15 @@ daed内置支持singbox，但不支持hy2的端口跳跃，brutal等
 
 3、修改节点的json，把socket作为节点的流量入口
 
-*  "inbounds": [
-*    {
-*      "type": "socks",
-*      "tag": "socks-in",
-*      "listen": "0.0.0.0",
-*      "listen_port": 10811,
-*      "udp_fragment": true
-*    }
-*  ],
+  "inbounds": [
+    {
+      "type": "socks",
+      "tag": "socks-in",
+      "listen": "0.0.0.0",
+      "listen_port": 10811,
+      "udp_fragment": true
+    }
+  ],
 
 
 
