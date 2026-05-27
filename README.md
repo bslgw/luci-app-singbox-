@@ -3,30 +3,28 @@
 
 ### luci-app-sing-box-bridge
 
-### 極簡 sing-box 管理界面，旨在作為 **daed** 外挂 sing-box 时提供高性能內核管理。
+### 極簡 sing-box 管理界面，旨在作為 daed 外掛 sing-box 時提供高性能內核管理。
 
-### 使用场景：
+### 使用場景：
 
-使用独立的sing-box 配合daed创建的socket，实现hy2的端口跳跃，brutal等
+使用獨立的 sing-box 配合 daed 創建的 socket，實現 hy2 的端口跳躍、brutal 等。
 
-### 使用条件：
+### 使用條件：
 
-1、安装独立的sing-box
+安裝獨立的 sing-box
 
-2、在daed内配置socket
+在 daed 內配置 socket
 
-<img width="612" height="458" alt="捕获" src="https://github.com/user-attachments/assets/e1d9b8ac-c821-4dd5-b9f1-033e07346aae" />
+修改節點的 json，把 socket 作為節點的流量入口
 
-
-3、修改节点的json，把socket作为节点的流量入口
 ```
-"inbounds": [
+json"inbounds": [
     {
       "type": "socks",
       "tag": "socks-in",
       "listen": "0.0.0.0",
-      "listen_port": 10811,
-      #只替换上边这部分
+      "listen_port": 10811
+      // 只替換上面這部分
     }
   ]
 ```
