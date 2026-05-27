@@ -106,9 +106,9 @@ return L.view.extend({
                 E('tr', { 'class': 'tr cbi-section-table-titles' }, [
                     E('th', { 'class': 'th', 'style': 'width:40px; text-align:center;' }, ''), 
                     E('th', { 'class': 'th', 'style': 'width:auto;' }, _('檔案名稱')),
-                    // 新增：域名與 IP 表頭列
+                    // 新增：協議表頭列
+                    E('th', { 'class': 'th', 'style': 'width:80px;' }, _('協議')),
                     E('th', { 'class': 'th', 'style': 'width:auto;' }, _('域名 / IP')),
-                    // 操作列保持鎖死寬度
                     E('th', { 'class': 'th', 'style': 'width:260px; text-align:center;' }, _('管理操作'))
                 ])
             ]);
@@ -117,38 +117,47 @@ return L.view.extend({
                 if (file.name.endsWith('.json') && file.name !== 'config.json') {
                     var isSelected = (file.name === selectedConf);
                     
-                    // 新增：域名/IP 數據載體單元格（初始空白）
+                    // 新增：協議與 IP 數據載體單元格（初始空白占位）
+                    var typeCell = E('td', { 'class': 'td', 'style': 'vertical-align:middle; color:#555; font-size:0.85em; font-weight:bold; text-transform:uppercase; padding-right:15px;' }, '');
                     var infoCell = E('td', { 'class': 'td', 'style': 'vertical-align:middle; color:#666; font-size:0.9em; word-break:break-word; padding-right:15px;' }, '');
 
-                    // 異步讀取 JSON 並靜默解析提取 server 字段
                     L.fs.read(confdir + '/' + file.name).then(function(content) {
                         if (!content) return;
                         try {
                             var json = JSON.parse(content);
                             var servers = [];
+                            var types = [];
+                            
                             if (json.outbounds && Array.isArray(json.outbounds)) {
                                 json.outbounds.forEach(function(out) {
                                     if (out.server && typeof out.server === 'string' && out.server !== '127.0.0.1' && out.server !== '::1') {
                                         servers.push(out.server);
+                                        // 同步提取出站協議類型
+                                        if (out.type) types.push(out.type);
                                     }
                                 });
                             }
+                            
+                            if (types.length > 0) {
+                                var uniqueTypes = types.filter(function(v, i, a) { return a.indexOf(v) === i; });
+                                typeCell.textContent = uniqueTypes.join(', ');
+                            }
+                            
                             if (servers.length > 0) {
-                                // 數組去重並拼接
-                                var unique = servers.filter(function(v, i, a) { return a.indexOf(v) === i; });
-                                infoCell.textContent = unique.join(', ');
+                                var uniqueServers = servers.filter(function(v, i, a) { return a.indexOf(v) === i; });
+                                infoCell.textContent = uniqueServers.join(', ');
                             }
                         } catch(e) {
-                            // 解析報錯則靜默失敗，保持空白
+                            // 靜默失敗，保持預設的空白占位
                         }
                     });
 
                     table.appendChild(E('tr', { 'class': 'tr', 'data-filename': file.name }, [
                         E('td', { 'class': 'td check-cell', 'style': 'text-align:center; vertical-align:middle;' }, [ isSelected ? E('span', { 'style': 'color:#46a546; font-weight:bold;' }, '✔') : '' ]),
                         E('td', { 'class': 'td name-cell', 'style': 'vertical-align:middle; ' + (isSelected ? 'font-weight:bold; color:#46a546;' : '') }, file.name),
-                        // 插入：解析出的域名與 IP 列
+                        // 插入：協議與 IP 雙列
+                        typeCell,
                         infoCell,
-                        // 保持優化過的無晃動按鈕列，增加 vertical-align:middle 保證整行完美居中
                         E('td', { 'class': 'td', 'style': 'text-align:center; vertical-align:middle; white-space:nowrap; width:260px;' }, [
                             E('button', { 'class': 'btn cbi-button-apply', 'click': L.bind(this.handleSwitch, this, file.name, confdir) }, isSelected ? _('生效中') : _('選用')),
                             E('button', { 'class': 'btn cbi-button-neutral', 'style': 'margin-left:4px;', 'click': L.bind(function() {
@@ -234,4 +243,29 @@ return L.view.extend({
                         }, this));
                     }, this) }, _('停止 sing-box')),
 
-                    E('button', { 'class': 'cbi-button cbi-button-add', 'style': 'margin-left:10px; display:inline-flex; align-items:center; justify-content:center; padding:6px 20px; border-radius:100px; box-sizing:border-box;', 'click': L.bind(function() {
+                    E('button', { 'class': 'cbi-button cbi-button-add', 'style': 'margin-left:10px; display:inline-flex; align-items:center; justify-content:center; padding:6px 20px; border-radius:100px; box-sizing:border-box;', 'click': L.bind(function() { 
+                        var name = prompt(_('新文件名:')); 
+                        if(name) {
+                            var filename = name.endsWith('.json') ? name : name + '.json';
+                            L.fs.write(confdir + '/' + filename, '{}').then(L.bind(function(){ 
+                                var container = document.getElementById('sb_file_list_container');
+                                if (container) {
+                                    this.renderList(container, confdir, window.localStorage.getItem('sb_selected_conf'));
+                                }
+                            }, this));
+                        }
+                    }, this) }, _('＋ 新建配置'))
+                ])
+            ]);
+        }, this);
+
+        var s2 = m.section(L.form.TypedSection, '_list', _('可用配置文件'));
+        s2.render = L.bind(function() {
+            var container = E('div', { 'id': 'sb_file_list_container' });
+            this.renderList(container, confdir, selectedConf);
+            return container;
+        }, this);
+
+        return m.render();
+    }
+}); // === 代码结束 ===
