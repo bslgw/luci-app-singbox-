@@ -1,7 +1,7 @@
 <img width="1130" height="511" alt="捕1获" src="https://github.com/user-attachments/assets/70f35870-f1eb-4b1a-a828-411900914a62" />
 openwrt控制台
 
-<img width="1195" height="599" alt="捕获" src="https://github.com/user-attachments/assets/54997874-c888-44c6-9d8a-63e70bfd4370" />
+
 web界面，端口:2025
 
 
