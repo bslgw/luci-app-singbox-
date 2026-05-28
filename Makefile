@@ -41,10 +41,8 @@ if [ -z "$${IPKG_INSTROOT}" ]; then
     # 强刷 LuCI 路由和模块缓存
     rm -rf /tmp/luci-indexcache /tmp/luci-modulecache/*
 
-    # 重启 rpcd 释放刚安装的 ACL 权限
-    if [ -x /etc/init.d/rpcd ]; then
-        /etc/init.d/rpcd restart >/dev/null 2>&1
-    fi
+    # 温柔地通知 rpcd 重载 ACL 权限，而不中断当前的登录会话 (解决踢人下线问题)
+    killall -HUP rpcd 2>/dev/null || true
 fi
 exit 0
 endef
