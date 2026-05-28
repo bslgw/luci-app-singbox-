@@ -25,10 +25,13 @@ endef
 define Build/Compile
 endef
 
-# 2. 安装打包阶段：直接把沙箱里的目录树无缝塞进 IPK 根目录
+# 2. 安装打包阶段：精确拷贝我们需要的目录，完美避开 SDK 的隐藏打包目录
 define Package/luci-app-singbox/install
-	$(INSTALL_DIR) $(1)
-	$(CP) $(PKG_BUILD_DIR)/* $(1)/
+	$(INSTALL_DIR) $(1)/usr $(1)/www
+	
+	# 只拷贝 usr 和 www 这两个业务目录，防止死循环
+	$(CP) $(PKG_BUILD_DIR)/usr $(1)/
+	$(CP) $(PKG_BUILD_DIR)/www $(1)/
 endef
 
 # 3. 用户安装后触发的脚本
