@@ -1,16 +1,15 @@
-name: Debug Repo Structure
-on: [push, workflow_dispatch]
-
-jobs:
-  debug:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-
-      - name: Debug Environment
-        run: |
-          echo "--- 仓库根目录内容 ---"
-          ls -R
-          echo "--- 工作空间变量 ---"
-          echo $GITHUB_WORKSPACE
+- name: Compile IPK
+      run: |
+        cd sdk
+        # 1. 把你的整个仓库代码作为一个 "feed" 软链接进去，或者直接拷贝到 package 目录
+        mkdir -p package/luci-app-singbox
+        # 将当前仓库所有文件拷贝进 SDK 的 package 目录
+        cp -r $GITHUB_WORKSPACE/* package/luci-app-singbox/
+        
+        # 2. 准备编译环境
+        ./scripts/feeds update -a
+        ./scripts/feeds install -a
+        make defconfig
+        
+        # 3. 开始编译
+        make package/luci-app-singbox/compile V=s
