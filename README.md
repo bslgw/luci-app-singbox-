@@ -1,4 +1,9 @@
-<img width="1156" height="408" alt="捕获" src="https://github.com/user-attachments/assets/8f75b50e-dfb3-4651-a3ed-9f0d53bfee87" />
+<img width="1130" height="511" alt="捕1获" src="https://github.com/user-attachments/assets/70f35870-f1eb-4b1a-a828-411900914a62" />
+openwrt控制台
+
+<img width="1195" height="599" alt="捕获" src="https://github.com/user-attachments/assets/54997874-c888-44c6-9d8a-63e70bfd4370" />
+web界面，端口:2025
+
 
 ## 除图片以外所有内容由google AI 生成
 
