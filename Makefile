@@ -15,26 +15,21 @@ define Package/luci-app-singbox
   PKGARCH:=all
 endef
 
-# 1. 准备阶段：把仓库里的 root 文件夹内容释放到编译沙箱中
+# 1. 强制清空准备阶段（不需要临时沙箱，避开 SDK 缓存 BUG）
 define Build/Prepare
-	mkdir -p $(PKG_BUILD_DIR)
-	$(CP) ./root/* $(PKG_BUILD_DIR)/
 endef
 
-# 纯静态打包，不需要执行 C 语言编译
+# 2. 强制清空编译阶段（纯脚本，不需要 C 语言编译）
 define Build/Compile
 endef
 
-# 2. 安装打包阶段：精确拷贝我们需要的目录，完美避开 SDK 的隐藏打包目录
+# 3. 安装打包：简单粗暴，直接从源码目录把 root 下的所有东西搬进 IPK 镜像
 define Package/luci-app-singbox/install
-	$(INSTALL_DIR) $(1)/usr $(1)/www
-	
-	# 只拷贝 usr 和 www 这两个业务目录，防止死循环
-	$(CP) $(PKG_BUILD_DIR)/usr $(1)/
-	$(CP) $(PKG_BUILD_DIR)/www $(1)/
+	$(INSTALL_DIR) $(1)
+	$(CP) ./root/* $(1)/
 endef
 
-# 3. 用户安装后触发的脚本
+# 4. 普通用户安装后触发的后台自动化脚本
 define Package/luci-app-singbox/postinst
 #!/bin/sh
 if [ -z "$${IPKG_INSTROOT}" ]; then
