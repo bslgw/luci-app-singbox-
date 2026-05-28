@@ -1,6 +1,3 @@
-
-
-
 name: Build Sing-box Bridge IPK
 
 on:
@@ -19,16 +16,7 @@ jobs:
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
-- name: Debug Directory Structure
-        run: |
-          echo "=== 当前仓库目录结构 ==="
-          find . -maxdepth 3 -not -path '*/.*'
-          echo "=== 检查 Makefile 内容 ==="
-          cat Makefile || echo "根目录未发现 Makefile"
-      - name: Setup Compilation Environment
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential ccache gettext libncurses5-dev libssl-dev xz-utils zlib1g-dev python3 rsync gawk file wget curl
+        sudo apt-get install -y build-essential ccache gettext libncurses5-dev libssl-dev xz-utils zlib1g-dev python3 rsync gawk file wget curl
       - name: Download Official OpenWrt SDK
         run: |
           ENCODED_URL="aHR0cHM6Ly9kb3dubG9hZHMub3BlbndydC5vcmcvcmVsZWFzZXMvMjIuMDMuMC90YXJnZXRzL3g4Ni82NC9vcGVud3J0LXNkay0yMi4wMy4wLXg4Ni02NF9nY2MtMTEuMi4wX211c2wuTGludXgteDg2XzY0LnRhci54eg=="
