@@ -7,7 +7,6 @@ on:
   workflow_dispatch:
 
 env:
-  # 強制使用 Node 24 以消除棄用警告並提升未來兼容性
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
@@ -36,7 +35,12 @@ jobs:
           ./scripts/feeds update -a
           ./scripts/feeds install -a
           mkdir -p package/luci-app-singbox
-          cp -r ../Makefile ../htdocs ../root package/luci-app-singbox/
+          # 修正：精准拷贝你目前的 5 个平铺文件
+          cp ../Makefile package/luci-app-singbox/
+          cp ../singbox.lua package/luci-app-singbox/
+          cp ../config.js package/luci-app-singbox/
+          cp ../config.htm package/luci-app-singbox/
+          cp ../luci-app-singbox.json package/luci-app-singbox/
 
       - name: Compile IPK
         run: |
@@ -48,5 +52,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: luci-app-singbox-ipk
-          # 使用極簡路徑，確保抓到所有產出的 ipk
           path: sdk/bin/**/*.ipk
