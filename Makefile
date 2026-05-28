@@ -1,39 +1,55 @@
-include $(TOPDIR)/rules.mk
+name: Build Sing-box Bridge IPK
 
-PKG_NAME:=luci-app-singbox
-PKG_VERSION:=1.0.7
-PKG_RELEASE:=1
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
 
-include $(INCLUDE_DIR)/package.mk
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
-define Package/luci-app-singbox
-  SECTION:=luci
-  CATEGORY:=LuCI
-  SUBMENU:=3. Applications
-  TITLE:=LuCI Support for Sing-box Bridge
-  DEPENDS:=+luci-base +sing-box +jq
-  PKGARCH:=all
-endef
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
 
-define Build/Compile
-endef
+      - name: Setup Compilation Environment
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential ccache gettext libncurses5-dev libssl-dev xz-utils zlib1g-dev python3 rsync gawk file wget curl
 
-define Package/luci-app-singbox/install
-	# 1. 菜单配置文件
-	$(INSTALL_DIR) $(1)/usr/share/luci/menu.d
-	$(INSTALL_DATA) $(TOPDIR)/package/luci-app-singbox/luci-app-singbox.json $(1)/usr/share/luci/menu.d/luci-app-singbox.json
+      - name: Download Official OpenWrt SDK
+        run: |
+          ENCODED_URL="aHR0cHM6Ly9kb3dubG9hZHMub3BlbndydC5vcmcvcmVsZWFzZXMvMjIuMDMuMC90YXJnZXRzL3g4Ni82NC9vcGVud3J0LXNkay0yMi4wMy4wLXg4Ni02NF9nY2MtMTEuMi4wX211c2wuTGludXgteDg2XzY0LnRhci54eg=="
+          REAL_URL=$(echo $ENCODED_URL | base64 -d)
+          curl -L -o sdk.tar.xz "$REAL_URL"
+          mkdir sdk
+          tar -xJf sdk.tar.xz -C sdk --strip-components=1
 
-	# 2. Lua 控制器
-	$(INSTALL_DIR) $(1)/usr/lib/lua/luci/controller
-	$(INSTALL_DATA) $(TOPDIR)/package/luci-app-singbox/singbox.lua $(1)/usr/lib/lua/luci/controller/singbox.lua
+      - name: Prepare Package
+        run: |
+          cd sdk
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
+          mkdir -p package/luci-app-singbox
+          # 将根目录下的 5 个文件精准复制到编译路径
+          cp ../Makefile package/luci-app-singbox/
+          cp ../singbox.lua package/luci-app-singbox/
+          cp ../config.js package/luci-app-singbox/
+          cp ../config.htm package/luci-app-singbox/
+          cp ../luci-app-singbox.json package/luci-app-singbox/
 
-	# 3. 前端 JS 视图文件
-	$(INSTALL_DIR) $(1)/www/luci-static/resources/view/singbox
-	$(INSTALL_DATA) $(TOPDIR)/package/luci-app-singbox/config.js $(1)/www/luci-static/resources/view/singbox/config.js
+      - name: Compile IPK
+        run: |
+          cd sdk
+          make defconfig
+          make package/luci-app-singbox/compile V=s
 
-	# 4. 视图中转文件
-	$(INSTALL_DIR) $(1)/usr/lib/lua/luci/view/singbox
-	$(INSTALL_DATA) $(TOPDIR)/package/luci-app-singbox/config.htm $(1)/usr/lib/lua/luci/view/singbox/config.htm
-endef
-
-$(eval $(call BuildPackage,luci-app-singbox))
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: luci-app-singbox-ipk
+          path: sdk/bin/**/*.ipk
