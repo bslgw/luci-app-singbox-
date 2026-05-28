@@ -13,49 +13,10 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      # 关键步骤：打印出所有文件位置，这能证明你到底有没有把文件传上去
-      - name: Debug File Locations
+      # 关键步骤：彻底扫描，找出所有文件的藏身之处
+      - name: Find Files
         run: |
-          echo "当前工作目录: $(pwd)"
-          echo "GitHub 工作区绝对路径: $GITHUB_WORKSPACE"
-          echo "正在列出仓库根目录下的文件:"
-          ls -F $GITHUB_WORKSPACE
-
-      - name: Setup Compilation Environment
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential ccache gettext libncurses5-dev libssl-dev xz-utils zlib1g-dev python3 rsync gawk file wget curl
-
-      - name: Download Official OpenWrt SDK
-        run: |
-          ENCODED_URL="aHR0cHM6Ly9kb3dubG9hZHMub3BlbndydC5vcmcvcmVsZWFzZXMvMjIuMDMuMC90YXJnZXRzL3g4Ni82NC9vcGVud3J0LXNkay0yMi4wMy4wLXg4Ni02NF9nY2MtMTEuMi4wX211c2wuTGludXgteDg2XzY0LnRhci54eg=="
-          REAL_URL=$(echo $ENCODED_URL | base64 -d)
-          curl -L -o sdk.tar.xz "$REAL_URL"
-          mkdir sdk
-          tar -xJf sdk.tar.xz -C sdk --strip-components=1
-
-      - name: Prepare Package
-        run: |
-          # 1. 既然在根目录，直接创建目录
-          mkdir -p sdk/package/luci-app-singbox
-          
-          # 2. 绝对路径拷贝，严丝合缝，根本不需要 cd
-          cp "$GITHUB_WORKSPACE/Makefile" sdk/package/luci-app-singbox/
-          cp "$GITHUB_WORKSPACE/singbox.lua" sdk/package/luci-app-singbox/
-          cp "$GITHUB_WORKSPACE/config.js" sdk/package/luci-app-singbox/
-          cp "$GITHUB_WORKSPACE/config.htm" sdk/package/luci-app-singbox/
-          cp "$GITHUB_WORKSPACE/luci-app-singbox.json" sdk/package/luci-app-singbox/
-
-      - name: Compile IPK
-        run: |
-          cd sdk
-          ./scripts/feeds update -a
-          ./scripts/feeds install -a
-          make defconfig
-          make package/luci-app-singbox/compile V=s
-
-      - name: Upload Artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: luci-app-singbox-ipk
-          path: sdk/bin/**/*.ipk
+          echo "=== 正在扫描代码库中所有文件 ==="
+          find . -maxdepth 4 -not -path '*/.*'
+          echo "=== 正在专门寻找核心文件 ==="
+          find . -name "singbox.lua" -o -name "Makefile" -o -name "config.js"
