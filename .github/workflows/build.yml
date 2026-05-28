@@ -16,6 +16,13 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
+      - name: Debug: Check File Existence
+        run: |
+          echo "Current directory: $(pwd)"
+          echo "Workspace path: $GITHUB_WORKSPACE"
+          echo "Files in workspace:"
+          ls -R $GITHUB_WORKSPACE
+
       - name: Setup Compilation Environment
         run: |
           sudo apt-get update
@@ -35,12 +42,13 @@ jobs:
           ./scripts/feeds update -a
           ./scripts/feeds install -a
           mkdir -p package/luci-app-singbox
-          # 修正：精准拷贝你目前的 5 个平铺文件
-          cp ../Makefile package/luci-app-singbox/
-          cp ../singbox.lua package/luci-app-singbox/
-          cp ../config.js package/luci-app-singbox/
-          cp ../config.htm package/luci-app-singbox/
-          cp ../luci-app-singbox.json package/luci-app-singbox/
+          
+          # 使用绝对路径，强制定位到仓库根目录
+          cp $GITHUB_WORKSPACE/Makefile package/luci-app-singbox/
+          cp $GITHUB_WORKSPACE/singbox.lua package/luci-app-singbox/
+          cp $GITHUB_WORKSPACE/config.js package/luci-app-singbox/
+          cp $GITHUB_WORKSPACE/config.htm package/luci-app-singbox/
+          cp $GITHUB_WORKSPACE/luci-app-singbox.json package/luci-app-singbox/
 
       - name: Compile IPK
         run: |
