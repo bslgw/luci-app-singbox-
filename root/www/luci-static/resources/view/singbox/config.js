@@ -10,55 +10,257 @@ return L.view.extend({
     handleSave: null,
     handleReset: null,
 
-    // --- 核心：节点解析器 ---
-    parseNodeLink: function(link) {
-        if (!link || link.trim() === "") { alert(_('請輸入節點鏈接')); return null; }
+    // --- 輔助：強健的 Base64 解碼 (處理各種訂閱與節點編碼) ---
+    safeB64Decode: function(str) {
+        if (!str) return "";
+        str = str.replace(/-/g, '+').replace(/_/g, '/');
+        while (str.length % 4) str += '=';
         try {
-            var name = "Imported-Node";
-            if (link.indexOf('#') !== -1) {
-                var parts = link.split('#');
-                name = decodeURIComponent(parts[1]);
-                link = parts[0];
-            }
-            var protocol = link.split('://')[0];
-            var main = link.split('://')[1];
-            if (!main) return null;
+            return decodeURIComponent(escape(window.atob(str)));
+        } catch (e) {
+            return window.atob(str); // 降級處理
+        }
+    },
+
+    // --- 核心 1：全協議節點解析器 (Vmess/Vless/Trojan/SS/Hysteria2) ---
+// --- 核心 1：全協議節點解析器 (增強版，支援 Reality Vision / uTLS / ALPN) ---
+    parseNodeLink: function(link) {
+        if (!link || link.trim() === "") return null;
+        link = link.trim();
+        
+        try {
+            var protocolMatch = link.match(/^([a-zA-Z0-9]+):\/\/(.*)$/);
+            if (!protocolMatch) throw new Error("無法識別的協議格式");
             
+            var protocol = protocolMatch[1].toLowerCase();
+            var rawContent = protocolMatch[2];
+            var node = null;
+
+            // 1. VMess 協議 (Base64 JSON)
+            if (protocol === 'vmess') {
+                var vmessJson = JSON.parse(this.safeB64Decode(rawContent));
+                node = {
+                    type: "vmess",
+                    tag: vmessJson.ps || "VMess-Imported",
+                    server: vmessJson.add,
+                    server_port: parseInt(vmessJson.port),
+                    uuid: vmessJson.id,
+                    alter_id: parseInt(vmessJson.aid) || 0,
+                    security: vmessJson.scy || "auto"
+                };
+                if (vmessJson.net === 'ws') {
+                    node.transport = { type: "ws", path: vmessJson.path || "/", headers: { Host: vmessJson.host || vmessJson.add } };
+                }
+                if (vmessJson.tls === 'tls') {
+                    node.tls = { enabled: true, server_name: vmessJson.sni || vmessJson.host || vmessJson.add };
+                }
+                return node;
+            }
+
+            // 分離 URI 中的節點名稱
+            var name = "Imported-Node";
+            var parts = rawContent.split('#');
+            if (parts.length > 1) {
+                name = decodeURIComponent(parts.pop());
+                rawContent = parts.join('#');
+            }
+
             var query = {};
-            if (main.indexOf('?') !== -1) {
-                var qParts = main.split('?');
-                main = qParts[0];
+            var mainUrl = rawContent;
+            if (rawContent.indexOf('?') !== -1) {
+                var qParts = rawContent.split('?');
+                mainUrl = qParts[0];
                 qParts[1].split('&').forEach(function(item) {
                     var kv = item.split('=');
-                    if (kv.length === 2) query[kv[0]] = kv[1];
+                    if (kv.length === 2) query[kv[0]] = decodeURIComponent(kv[1]);
                 });
             }
-            
-            var auth = main.split('@');
-            var addr = auth[auth.length - 1].split(':');
-            var host = addr[0];
-            var port = parseInt(addr[1]);
-            var uuid = auth.length > 1 ? auth[0] : "";
 
-            var node = {
-                type: protocol,
-                tag: name,
-                server: host,
-                server_port: port
-            };
+            // 2. VLESS / Trojan / Hysteria2
+            if (['vless', 'trojan', 'hysteria2'].indexOf(protocol) !== -1) {
+                var authAddr = mainUrl.split('@');
+                var uuidOrPwd = authAddr[0];
+                var addrPart = authAddr[1].split(':');
+                var host = addrPart[0];
+                var port = parseInt(addrPart[1]);
 
-            if (protocol === 'hysteria2') {
-                node.password = uuid;
-                node.tls = {
-                    enabled: true,
-                    server_name: query.sni || host,
-                    insecure: (query.insecure === '1')
-                };
-            } else {
-                node.uuid = uuid;
+                node = { type: protocol, tag: name, server: host, server_port: port };
+                if (protocol === 'trojan' || protocol === 'hysteria2') node.password = uuidOrPwd;
+                else node.uuid = uuidOrPwd;
+
+                // [修復點 1] VLESS 專屬配置：開啟 xudp，並讀取 flow (如 xtls-rprx-vision)
+                if (protocol === 'vless') {
+                    node.packet_encoding = "xudp"; 
+                    if (query.flow) {
+                        node.flow = query.flow;
+                    }
+                }
+
+                if (query.security === 'tls' || query.security === 'reality' || protocol === 'hysteria2' || protocol === 'trojan') {
+                    node.tls = { enabled: true, server_name: query.sni || query.peer || host, insecure: (query.allowInsecure === '1' || query.insecure === '1') };
+                    
+                    // [修復點 2] 支援 ALPN (如 h3, h2)
+                    if (query.alpn) {
+                        node.tls.alpn = query.alpn.split(',');
+                    }
+
+                    // [修復點 3] 支援 uTLS 指紋偽裝 (Reality 必備)
+                    if (query.fp) {
+                        node.tls.utls = { enabled: true, fingerprint: query.fp };
+                    } else if (query.security === 'reality') {
+                        // 如果鏈接沒寫 fp 但開啟了 reality，給一個默認的 chrome 指紋保底
+                        node.tls.utls = { enabled: true, fingerprint: "chrome" };
+                    }
+
+                    if (query.security === 'reality') {
+                        node.tls.reality = { enabled: true, public_key: query.pbk, short_id: query.sid || "" };
+                    }
+                }
+                return node;
             }
-            return node;
-        } catch (e) { alert(_('解析失敗: ') + e.message); return null; }
+
+            // 3. Shadowsocks (SIP002)
+            if (protocol === 'ss') {
+                var ssHostPort, ssMethodPwd;
+                if (mainUrl.indexOf('@') !== -1) {
+                    var ssParts = mainUrl.split('@');
+                    ssMethodPwd = this.safeB64Decode(ssParts[0]).split(':');
+                    ssHostPort = ssParts[1].split(':');
+                } else {
+                    var decodedMain = this.safeB64Decode(mainUrl);
+                    var ssParts2 = decodedMain.split('@');
+                    ssMethodPwd = ssParts2[0].split(':');
+                    ssHostPort = ssParts2[1].split(':');
+                }
+                node = { type: "shadowsocks", tag: name, server: ssHostPort[0], server_port: parseInt(ssHostPort[1]), method: ssMethodPwd[0], password: ssMethodPwd[1] };
+                return node;
+            }
+            throw new Error("暫不支持該協議: " + protocol);
+        } catch (e) {
+            console.error("解析錯誤:", e);
+            return null;
+        }
+    },
+
+    // --- 核心 2：統一編輯器 (無感導入 + 手工編輯) ---
+    openEditor: function(filename, initialContent, confdir) {
+        var isNew = !filename;
+        var currentName = filename || '';
+        var content = initialContent || '{\n  "outbounds": []\n}';
+
+        var linkInput = E('input', { 
+            'class': 'cbi-input-text', 
+            'style': 'flex:1; border: 2px dashed #46a546; background: #f9fff9; padding: 10px;', 
+            'placeholder': _('⚡ 點擊此處粘貼節點鏈接 (Vmess/Vless/Trojan/SS/Hy2) ，將自動生成並覆蓋當前配置...') 
+        });
+        var nameInput = E('input', { 'class': 'cbi-input-text', 'style': 'width:250px; font-weight:bold; color:#46a546;', 'placeholder': _('文件名 (如: HK-01.json)'), 'value': currentName });
+        
+        var linesContainer = E('div', { 'style': 'width:40px; text-align:right; padding:10px 5px; background:#f5f5f5; color:#999; font-family:monospace; font-size:13px; overflow:hidden; border-right:1px solid #ccc; user-select:none;' }, '1');
+        var ta = E('textarea', { 'style': 'flex:1; width:100%; min-height:250px; max-height:50vh; font-family:monospace; font-size:13px; padding:10px; box-sizing:border-box; border:none; outline:none; white-space:pre; overflow-x:auto; resize:vertical;' }, [ content ]);
+        
+        var updateLineNumbers = function() {
+            var lines = ta.value.split('\n').length + 5;
+            var html = '';
+            for(var i = 1; i <= lines; i++) html += i + '<br>';
+            linesContainer.innerHTML = html;
+        };
+        ta.addEventListener('scroll', function() { linesContainer.scrollTop = ta.scrollTop; });
+        ta.addEventListener('input', updateLineNumbers);
+        setTimeout(updateLineNumbers, 50);
+
+        // 無感粘貼解析監聽
+
+        // 無感粘貼解析監聽 (嚴格執行「一文件一節點」標準)
+        linkInput.addEventListener('input', L.bind(function(e) {
+            var val = e.target.value.trim();
+            if (!val || !/^[a-zA-Z0-9]+:\/\//.test(val)) return;
+
+            var node = this.parseNodeLink(val);
+            if (node) {
+                // 1. 自動提取並填充文件名
+                if (isNew && !nameInput.value.trim()) {
+                    var safeName = (node.tag || 'Imported-Node').replace(/[^a-zA-Z0-9_\-\u4e00-\u9fa5]/g, '_');
+                    nameInput.value = safeName + '.json';
+                }
+
+                // 2. 直接生成完美對接 daed 的標準完整配置文件
+                // 摒棄複雜的追加邏輯，確保這個 JSON 就是一個純粹、乾淨的單節點配置
+                var standardConfig = {
+                    "log": {
+                        "level": "info",
+                        "timestamp": true
+                    },
+                    "inbounds": [
+                        {
+                            "type": "socks",
+                            "tag": "socks-in",
+                            "listen": "0.0.0.0",
+                            "listen_port": 10811,
+                            "udp_fragment": true
+                        }
+                    ],
+                    "outbounds": [
+                        node  // 將解析出的節點作為唯一的出口
+                    ],
+                    "route": {
+                        "rules": [
+                            {
+                                "inbound": "socks-in",
+                                "action": "route",
+                                "outbound": node.tag // 自動路由指向該節點
+                            }
+                        ],
+                        "final": node.tag // 兜底路由也指向該節點
+                    }
+                };
+                
+                // 3. 渲染到代碼框
+                ta.value = JSON.stringify(standardConfig, null, 4);
+                
+                // 4. 視覺反饋
+                var originalBg = linkInput.style.background;
+                linkInput.style.background = '#d4edda';
+                setTimeout(function(){ linkInput.style.background = originalBg; }, 300);
+
+                e.target.value = ''; 
+                updateLineNumbers();
+            }
+        }, this));
+
+        L.ui.showModal(isNew ? _('✨ 新建/導入配置') : _('✏️ 編輯配置: ') + filename, [ 
+            E('div', { 'style': 'display:flex; margin-bottom:15px; padding-bottom:15px; border-bottom:1px dashed #ccc;' }, [ linkInput ]),
+            E('div', { 'style': 'display:flex; align-items:center; gap:10px; margin-bottom:10px;' }, [
+                E('label', { 'style': 'font-weight:bold; width:80px;' }, _('文件名稱:')),
+                nameInput,
+                isNew ? E('span', { 'style': 'color:#999; font-size:0.9em;' }, _('(*粘貼鏈接可自動生成)')) : ''
+            ]),
+            E('div', { 'style': 'border:1px solid #ccc; display:flex; margin-bottom:15px; max-height:55vh; overflow:hidden; border-radius:4px;' }, [ linesContainer, ta ]),
+            E('div', { 'class': 'right', 'style': 'display:flex; gap:10px; align-items:center;' }, [
+                E('button', { 'class': 'btn cbi-button-neutral', 'click': function() { 
+                    try { JSON.parse(ta.value); alert(_('JSON 格式正確 ✔')); } catch(e) { alert(_('語法錯誤: ') + e.message); }
+                }}, _('檢查語法')),
+                E('button', { 'class': 'btn cbi-button-neutral', 'click': function() { 
+                    try { var obj = JSON.parse(ta.value); ta.value = JSON.stringify(obj, null, 4); updateLineNumbers(); } 
+                    catch(e) { alert(_('格式化失敗，請先檢查語法')); }
+                }}, _('格式化')),
+                E('div', { 'style': 'flex-grow:1;' }), 
+                E('button', { 'class': 'btn', 'click': L.ui.hideModal }, _('取消')),
+                E('button', { 'class': 'btn cbi-button-positive', 'click': L.bind(function() { 
+                    var finalName = nameInput.value.trim();
+                    if (!finalName) { alert(_('請輸入文件名稱！')); return; }
+                    if (!finalName.endsWith('.json')) finalName += '.json';
+
+                    try {
+                        var obj = JSON.parse(ta.value);
+                        L.fs.write(confdir + '/' + finalName, JSON.stringify(obj, null, 4)).then(L.bind(function() { 
+                            L.ui.hideModal(); 
+                            var container = document.getElementById('sb_file_list_container');
+                            if (container) this.renderList(container, confdir, L.uci.get('sing-box', 'main', 'selected_conf'));
+                        }, this));
+                    } catch(e) { alert(_('JSON 錯誤，無法儲存: ') + e.message); }
+                }, this) }, _('儲存配置'))
+            ])
+        ]);
     },
 
     getCache: function() { return window.sessionStorage.getItem('sb_net_cache'); },
@@ -130,7 +332,6 @@ return L.view.extend({
         L.fs.read(confdir + '/' + filename).then(L.bind(function(content) {
             return L.fs.write(confdir + '/config.json', content);
         }, this)).then(L.bind(function() {
-            // 【修正1】：將選用的文件名稱寫入 UCI 配置，並應用保存，取代原本的 localStorage
             L.uci.set('sing-box', 'main', 'selected_conf', filename);
             return L.uci.save().then(function() { return L.uci.apply(); });
         }, this)).then(L.bind(function() {
@@ -200,94 +401,21 @@ return L.view.extend({
                         typeCell,
                         infoCell,
                         E('td', { 'class': 'td', 'style': 'text-align:center; vertical-align:middle; white-space:nowrap; width:320px;' }, [
-                            // 选用/生效中 按钮 (大字号绿色胶囊)
                             E('button', { 
                                 'class': 'cbi-button cbi-button-apply', 
                                 'style': 'padding:7px 22px; border-radius:100px; background:#46a546 !important; color:#fff !important; border:none; font-size:1.05em; font-weight:500;',
                                 'click': L.bind(this.handleSwitch, this, file.name, confdir) 
                             }, isSelected ? _('生效中') : _('選用')),
-                            // 編輯 按钮 (大字号灰色胶囊)
+                            // 【修改點】：這裡呼叫了新的 openEditor
                             E('button', { 
                                 'class': 'cbi-button cbi-button-neutral', 
                                 'style': 'margin-left:8px; padding:7px 22px; border-radius:100px; background:#999 !important; color:#fff !important; border:none; font-size:1.05em; font-weight:500;', 
                                 'click': L.bind(function() {
-                                L.fs.read(confdir + '/' + file.name).then(L.bind(function(content) {
-                                    var linesContainer = E('div', { 'style': 'width:40px; text-align:right; padding:10px 5px; background:#f5f5f5; color:#999; font-family:monospace; font-size:13px; overflow:hidden; border-right:1px solid #ccc; user-select:none;' }, '1');
-                                    var ta = E('textarea', { 'style': 'flex:1; width:100%; min-height:200px; max-height:40vh; font-family:monospace; font-size:13px; padding:10px; box-sizing:border-box; border:none; outline:none; white-space:pre; overflow-x:auto; resize:vertical;' }, [ content || '{\n\n}' ]);
-                                    var linkInput = E('input', { 'class': 'cbi-input-text', 'style': 'width:70%;', 'placeholder': _('在此粘貼節點鏈接以導入...') });
-                                    
-                                    var updateLineNumbers = function() {
-                                        var lines = ta.value.split('\n').length + 5;
-                                        var html = '';
-                                        for(var i = 1; i <= lines; i++) html += i + '<br>';
-                                        linesContainer.innerHTML = html;
-                                    };
-                                    
-                                    ta.addEventListener('scroll', function() { linesContainer.scrollTop = ta.scrollTop; });
-                                    ta.addEventListener('input', updateLineNumbers);
-                                    setTimeout(updateLineNumbers, 50);
-
-                                    L.ui.showModal(_('編輯: ') + file.name, [ 
-                                        E('div', { 'style': 'display:flex; gap:10px; margin-bottom:10px;' }, [
-                                            linkInput,
-                                            E('button', { 'class': 'btn cbi-button-add', 'click': L.bind(function() {
-                                                var node = this.parseNodeLink(linkInput.value);
-                                                if (node) {
-                                                    var obj;
-                                                    // 【核心修正】：增强清洗逻辑 + 强力异常捕获兜底
-                                                    var rawText = (ta.value || '').replace(/^[\s\uFEFF\u00A0\u3000]+|[\s\uFEFF\u00A0\u3000]+$/g, ''); 
-                                                    
-                                                    if (rawText === "" || /^\{\s*\}$/.test(rawText) || rawText.indexOf('"') === -1) {
-                                                        obj = { "outbounds": [] };
-                                                    } else {
-                                                        try {
-                                                            obj = JSON.parse(rawText);
-                                                        } catch(e) {
-                                                            // 如果包含硬伤无法解析（如首行非法不可见字符），直接兜底重新初始化，确保顺利追加
-                                                            obj = { "outbounds": [] };
-                                                        }
-                                                    }
-                                                    
-                                                    if (!obj.outbounds) obj.outbounds = [];
-                                                    obj.outbounds.push(node);
-                                                    ta.value = JSON.stringify(obj, null, 4);
-                                                    linkInput.value = ''; // 清空输入框
-                                                    updateLineNumbers();
-                                                }
-                                            }, this) }, _('追加導入'))
-                                        ]),
-                                        E('div', { 'style': 'border:1px solid #ccc; display:flex; margin-bottom:10px; max-height:50vh; overflow:hidden;' }, [ linesContainer, ta ]),
-                                        E('div', { 'class': 'right', 'style': 'display:flex; gap:10px;' }, [
-                                            E('button', { 'class': 'btn', 'click': function() { 
-                                                try {
-                                                    JSON.parse(ta.value);
-                                                    alert(_('JSON 格式正確'));
-                                                } catch(e) { alert(_('語法檢查失敗: ') + e.message); }
-                                            }}, _('檢查語法')),
-                                            E('button', { 'class': 'btn', 'click': function() { 
-                                                try {
-                                                    var obj = JSON.parse(ta.value);
-                                                    ta.value = JSON.stringify(obj, null, 4);
-                                                    updateLineNumbers();
-                                                } catch(e) { alert(_('格式化失敗: ') + e.message); }
-                                            }}, _('格式化 JSON')),
-                                            E('div', { 'style': 'flex-grow:1;' }),
-                                            E('button', { 'class': 'btn', 'click': L.ui.hideModal }, _('取消')),
-                                            E('button', { 'class': 'btn cbi-button-positive', 'click': L.bind(function() { 
-                                                try {
-                                                    var obj = JSON.parse(ta.value);
-                                                    L.fs.write(confdir + '/' + file.name, JSON.stringify(obj, null, 4)).then(L.bind(function() { 
-                                                        L.ui.hideModal(); 
-                                                        // 【修正2】：儲存編輯後刷新列表時，改從 UCI 獲取選中狀態
-                                                        this.renderList(container, confdir, L.uci.get('sing-box', 'main', 'selected_conf'));
-                                                    }, this));
-                                                } catch(e) { alert(_('JSON 錯誤，無法儲存: ') + e.message); }
-                                            }, this) }, _('儲存'))
-                                        ])
-                                    ]);
-                                }, this)).catch(function(){ alert(_('無法讀取文件')); });
-                            }, this) }, _('編輯')),
-                            // 刪除 按钮 (大字号红色胶囊)
+                                    L.fs.read(confdir + '/' + file.name).then(L.bind(function(content) {
+                                        this.openEditor(file.name, content, confdir);
+                                    }, this)).catch(function(){ alert(_('無法讀取文件')); });
+                                }, this) 
+                            }, _('編輯')),
                             E('button', { 
                                 'class': 'cbi-button cbi-button-remove', 
                                 'style': 'margin-left:8px; padding:7px 22px; border-radius:100px; background:#dc3545 !important; color:#fff !important; border:none; font-size:1.05em; font-weight:500;', 
@@ -311,7 +439,6 @@ return L.view.extend({
     render: function(data) {
         var isRunning = data[1];
         var confdir = L.uci.get('sing-box', 'main', 'confdir') || '/etc/sing-box';
-        // 【修正3】：初始加載時，直接從 UCI 讀取記錄的選中配置，而不是依賴本地瀏覽器存儲
         var selectedConf = L.uci.get('sing-box', 'main', 'selected_conf');
 
         var m = new L.form.Map('sing-box', _('Sing-box Bridge'), _('SING-BOX 服務管理'));
@@ -362,17 +489,14 @@ return L.view.extend({
                                 setTimeout(L.bind(this.checkStatus, this), 600);
                             }, this));
                         }, this) }, _('停止 sing-box')),
-                        E('button', { 'class': 'cbi-button cbi-button-add', 'style': 'margin-left:10px; padding:6px 20px; border-radius:100px;', 'click': L.bind(function() { 
-                            var name = prompt(_('新文件名:')); 
-                            if(name) {
-                                var filename = name.endsWith('.json') ? name : name + '.json';
-                                L.fs.write(confdir + '/' + filename, '{\n  "outbounds": []\n}').then(L.bind(function(){ 
-                                    var container = document.getElementById('sb_file_list_container');
-                                    // 【修正4】：新建配置後刷新列表時，改從 UCI 獲取選中狀態
-                                    if (container) this.renderList(container, confdir, L.uci.get('sing-box', 'main', 'selected_conf'));
-                                }, this)).catch(function(e) { alert(_('創建失敗')); });
-                            }
-                        }, this) }, _('＋ 新建配置'))
+                        // 【修改點】：這裡呼叫了新的 openEditor (傳入 null 代表新建)
+                        E('button', { 
+                            'class': 'cbi-button cbi-button-add', 
+                            'style': 'margin-left:10px; padding:6px 20px; border-radius:100px;', 
+                            'click': L.bind(function() { 
+                                this.openEditor(null, null, confdir); 
+                            }, this) 
+                        }, _('⚡ 快速導入 / 新建'))
                     ])
                 ])
             ]);
