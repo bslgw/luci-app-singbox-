@@ -1,0 +1,25 @@
+{
+    "luci-app-singbox": {
+        "description": "Grant privileges for sing-box LuCI app",
+        "read": {
+            "ubus": {
+                "file": [ "list", "read", "stat" ]
+            },
+            "file": {
+                "/etc/sing-box": [ "list", "read", "stat" ],
+                "/etc/sing-box/*": [ "list", "read", "stat" ],
+                "/etc/init.d/sing-box": [ "read", "stat" ]
+            }
+        },
+        "write": {
+            "ubus": {
+                "file": [ "write", "remove", "exec" ]
+            },
+            "file": {
+                "/etc/sing-box/*": [ "write", "remove" ],
+                "/etc/init.d/sing-box": [ "exec" ],
+                "/bin/sh": [ "exec" ]
+            }
+        }
+    }
+}
