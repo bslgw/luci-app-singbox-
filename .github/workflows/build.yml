@@ -6,9 +6,6 @@ on:
       - main
   workflow_dispatch:
 
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -16,12 +13,13 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Debug: Check File Existence
+      # 关键步骤：打印出所有文件位置，这能证明你到底有没有把文件传上去
+      - name: Debug File Locations
         run: |
-          echo "Current directory: $(pwd)"
-          echo "Workspace path: $GITHUB_WORKSPACE"
-          echo "Files in workspace:"
-          ls -R $GITHUB_WORKSPACE
+          echo "当前工作目录: $(pwd)"
+          echo "GitHub 工作区绝对路径: $GITHUB_WORKSPACE"
+          echo "正在列出仓库根目录下的文件:"
+          ls -F $GITHUB_WORKSPACE
 
       - name: Setup Compilation Environment
         run: |
@@ -38,21 +36,21 @@ jobs:
 
       - name: Prepare Package
         run: |
-          cd sdk
-          ./scripts/feeds update -a
-          ./scripts/feeds install -a
-          mkdir -p package/luci-app-singbox
+          # 1. 既然在根目录，直接创建目录
+          mkdir -p sdk/package/luci-app-singbox
           
-          # 使用绝对路径，强制定位到仓库根目录
-          cp $GITHUB_WORKSPACE/Makefile package/luci-app-singbox/
-          cp $GITHUB_WORKSPACE/singbox.lua package/luci-app-singbox/
-          cp $GITHUB_WORKSPACE/config.js package/luci-app-singbox/
-          cp $GITHUB_WORKSPACE/config.htm package/luci-app-singbox/
-          cp $GITHUB_WORKSPACE/luci-app-singbox.json package/luci-app-singbox/
+          # 2. 绝对路径拷贝，严丝合缝，根本不需要 cd
+          cp "$GITHUB_WORKSPACE/Makefile" sdk/package/luci-app-singbox/
+          cp "$GITHUB_WORKSPACE/singbox.lua" sdk/package/luci-app-singbox/
+          cp "$GITHUB_WORKSPACE/config.js" sdk/package/luci-app-singbox/
+          cp "$GITHUB_WORKSPACE/config.htm" sdk/package/luci-app-singbox/
+          cp "$GITHUB_WORKSPACE/luci-app-singbox.json" sdk/package/luci-app-singbox/
 
       - name: Compile IPK
         run: |
           cd sdk
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
           make defconfig
           make package/luci-app-singbox/compile V=s
 
