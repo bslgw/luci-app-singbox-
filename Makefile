@@ -1,55 +1,55 @@
-name: Build Sing-box Bridge IPK
+include $(TOPDIR)/rules.mk
 
-on:
-  push:
-    branches:
-      - main
-  workflow_dispatch:
+PKG_NAME:=luci-app-singbox
+PKG_VERSION:=1.0.0
+PKG_RELEASE:=1
 
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+include $(INCLUDE_DIR)/package.mk
 
-jobs:
-  build:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
+define Package/luci-app-singbox
+  SECTION:=luci
+  CATEGORY:=LuCI
+  SUBMENU:=3. Applications
+  TITLE:=LuCI support for Sing-box
+  PKGARCH:=all
+endef
 
-      - name: Setup Compilation Environment
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential ccache gettext libncurses5-dev libssl-dev xz-utils zlib1g-dev python3 rsync gawk file wget curl
+define Build/Prepare
+	mkdir -p $(PKG_BUILD_DIR)
+	# 将根目录下所有内容拷贝到编译区
+	$(CP) ./* $(PKG_BUILD_DIR)/
+endef
 
-      - name: Download Official OpenWrt SDK
-        run: |
-          ENCODED_URL="aHR0cHM6Ly9kb3dubG9hZHMub3BlbndydC5vcmcvcmVsZWFzZXMvMjIuMDMuMC90YXJnZXRzL3g4Ni82NC9vcGVud3J0LXNkay0yMi4wMy4wLXg4Ni02NF9nY2MtMTEuMi4wX211c2wuTGludXgteDg2XzY0LnRhci54eg=="
-          REAL_URL=$(echo $ENCODED_URL | base64 -d)
-          curl -L -o sdk.tar.xz "$REAL_URL"
-          mkdir sdk
-          tar -xJf sdk.tar.xz -C sdk --strip-components=1
+define Build/Configure
+endef
 
-      - name: Prepare Package
-        run: |
-          cd sdk
-          ./scripts/feeds update -a
-          ./scripts/feeds install -a
-          mkdir -p package/luci-app-singbox
-          # 将根目录下的 5 个文件精准复制到编译路径
-          cp ../Makefile package/luci-app-singbox/
-          cp ../singbox.lua package/luci-app-singbox/
-          cp ../config.js package/luci-app-singbox/
-          cp ../config.htm package/luci-app-singbox/
-          cp ../luci-app-singbox.json package/luci-app-singbox/
+define Build/Compile
+endef
 
-      - name: Compile IPK
-        run: |
-          cd sdk
-          make defconfig
-          make package/luci-app-singbox/compile V=s
+define Package/luci-app-singbox/install
+	# 1. 安装 Lua 控制器
+	$(INSTALL_DIR) $(1)/usr/lib/lua/luci/controller
+	$(CP) $(PKG_BUILD_DIR)/luasrc/controller/* $(1)/usr/lib/lua/luci/controller/
 
-      - name: Upload Artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: luci-app-singbox-ipk
-          path: sdk/bin/**/*.ipk
+	# 2. 安装 Lua 视图
+	$(INSTALL_DIR) $(1)/usr/lib/lua/luci/view
+	$(CP) $(PKG_BUILD_DIR)/luasrc/view/* $(1)/usr/lib/lua/luci/view/
+
+	# 3. 安装静态资源 (js/htm)
+	$(INSTALL_DIR) $(1)/www/luci-static/resources/view/singbox
+	$(CP) $(PKG_BUILD_DIR)/htdocs/luci-static/resources/view/singbox/* $(1)/www/luci-static/resources/view/singbox/
+
+	# 4. 安装配置文件
+	$(INSTALL_DIR) $(1)/etc/config
+	$(CP) $(PKG_BUILD_DIR)/root/etc/config/* $(1)/etc/config/
+
+	# 5. 安装 init 脚本 (并确保有执行权限)
+	$(INSTALL_DIR) $(1)/etc/init.d
+	$(INSTALL_BIN) $(PKG_BUILD_DIR)/root/etc/init.d/* $(1)/etc/init.d/
+
+	# 6. 安装菜单配置
+	$(INSTALL_DIR) $(1)/usr/share/luci/menu.d
+	$(CP) $(PKG_BUILD_DIR)/root/usr/share/luci/menu.d/* $(1)/usr/share/luci/menu.d/
+endef
+
+$(eval $(call BuildPackage,luci-app-singbox))
