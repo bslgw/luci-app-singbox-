@@ -22,6 +22,7 @@ return L.view.extend({
         ]);
     },
 
+    // 【修改点】：仅替换了网络检测逻辑，保持 UI 结构完全不变
     checkNetwork: function(isExplicit) {
         var netDot = document.getElementById('sb_net_dot');
         var netText = document.getElementById('sb_net_text');
@@ -32,9 +33,9 @@ return L.view.extend({
             netDot.style.background = '#17a2b8'; 
         }
 
-        var cmdCn = '(ping -c 1 -W 2 223.5.5.5 >/dev/null 2>&1) || ' + 
-                    '(wget -q -O /dev/null -T 2 http://119.29.29.29/d?dn=baidu.com >/dev/null 2>&1) && exit 0; exit 1';
-        var cmdGlobal = '(wget -q -O /dev/null -T 2 http://www.google.com >/dev/null 2>&1) && exit 0; exit 1';
+        // 使用 curl 进行 HEAD 请求检测，这是目前 OpenWrt 下最稳健的方式
+        var cmdCn = 'curl -I -s --connect-timeout 2 http://223.5.5.5 >/dev/null 2>&1 && exit 0 || exit 1';
+        var cmdGlobal = 'curl -I -s --connect-timeout 2 http://www.google.com/generate_204 >/dev/null 2>&1 && exit 0 || exit 1';
 
         Promise.all([
             L.fs.exec('/bin/sh', ['-c', cmdCn]).catch(function() { return { code: 1 }; }),
@@ -79,7 +80,6 @@ return L.view.extend({
         var btn = ev.target;
         btn.disabled = true; btn.textContent = _('正在應用...');
 
-        // 走正道：读取文件，然后写入 config.json
         L.fs.read(confdir + '/' + filename).then(L.bind(function(content) {
             return L.fs.write(confdir + '/config.json', content);
         }, this)).then(L.bind(function() {
@@ -124,7 +124,6 @@ return L.view.extend({
                     var typeCell = E('td', { 'class': 'td', 'style': 'vertical-align:middle; color:#555; font-size:0.85em; font-weight:bold; text-transform:uppercase; padding-right:15px;' }, _('讀取中...'));
                     var infoCell = E('td', { 'class': 'td', 'style': 'vertical-align:middle; color:#666; font-size:0.9em; word-break:break-word; padding-right:15px;' }, '');
 
-                    // 走正道：直接用 L.fs.read 极速读取
                     L.fs.read(confdir + '/' + file.name).then(function(res) {
                         if (!res) { typeCell.textContent = '-'; return; }
                         try {
@@ -154,7 +153,6 @@ return L.view.extend({
                         infoCell,
                         E('td', { 'class': 'td', 'style': 'text-align:center; vertical-align:middle; white-space:nowrap; width:260px;' }, [
                             E('button', { 'class': 'btn cbi-button-apply', 'click': L.bind(this.handleSwitch, this, file.name, confdir) }, isSelected ? _('生效中') : _('選用')),
-                            
                             E('button', { 'class': 'btn cbi-button-neutral', 'style': 'margin-left:4px;', 'click': L.bind(function() {
                                 L.fs.read(confdir + '/' + file.name).then(function(content) {
                                     var ta = E('textarea', { 'style': 'width:100%; height:400px;' }, [ content || '{}' ]);
@@ -168,7 +166,6 @@ return L.view.extend({
                                     ]) ]) ]);
                                 }).catch(function(){ alert(_('無法讀取文件')); });
                             }, this) }, _('編輯')),
-
                             E('button', { 'class': 'btn cbi-button-remove', 'style': 'margin-left:4px;', 'click': L.bind(function(ev) { 
                                 if (confirm(_('確定刪除此配置嗎？'))) {
                                     L.fs.remove(confdir + '/' + file.name).then(L.bind(function(){ 
@@ -187,7 +184,7 @@ return L.view.extend({
     },
 
     render: function(data) {
-        var isRunning = data;
+        var isRunning = data[1];
         var confdir = L.uci.get('sing-box', 'main', 'confdir') || '/etc/sing-box';
         var selectedConf = window.localStorage.getItem('sb_selected_conf');
 
@@ -223,7 +220,6 @@ return L.view.extend({
                             E('span', { 'id': 'sb_net_dot', 'style': 'display:inline-block; width:12px; height:12px; border-radius:50%; background:' + labelBg + ';' }),
                             E('span', { 'id': 'sb_net_text', 'style': 'font-weight:bold; color:#444;' }, labelText)
                         ]),
-                        
                         E('button', { 'class': 'cbi-button', 'style': 'margin-left:auto; padding:6px 20px; border-radius:100px; background:#46a546 !important; color:#fff !important; border:none;', 'click': L.bind(function(ev) {
                             ev.target.textContent = _('正在重啟...');
                             window.sessionStorage.removeItem('sb_net_cache');
@@ -232,7 +228,6 @@ return L.view.extend({
                                 setTimeout(L.bind(this.checkStatus, this), 1000);
                             }, this));
                         }, this) }, _('重啟 sing-box')),
-
                         E('button', { 'class': 'cbi-button', 'style': 'margin-left:10px; padding:6px 20px; border-radius:100px; background:#999 !important; color:#fff !important; border:none;', 'click': L.bind(function(ev) {
                             ev.target.textContent = _('正在停止...');
                             window.sessionStorage.removeItem('sb_net_cache');
@@ -241,7 +236,6 @@ return L.view.extend({
                                 setTimeout(L.bind(this.checkStatus, this), 600);
                             }, this));
                         }, this) }, _('停止 sing-box')),
-
                         E('button', { 'class': 'cbi-button cbi-button-add', 'style': 'margin-left:10px; padding:6px 20px; border-radius:100px;', 'click': L.bind(function() { 
                             var name = prompt(_('新文件名:')); 
                             if(name) {
