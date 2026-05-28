@@ -130,9 +130,12 @@ return L.view.extend({
         L.fs.read(confdir + '/' + filename).then(L.bind(function(content) {
             return L.fs.write(confdir + '/config.json', content);
         }, this)).then(L.bind(function() {
+            // 【修正1】：將選用的文件名稱寫入 UCI 配置，並應用保存，取代原本的 localStorage
+            L.uci.set('sing-box', 'main', 'selected_conf', filename);
+            return L.uci.save().then(function() { return L.uci.apply(); });
+        }, this)).then(L.bind(function() {
             return this.doRestart().catch(function() { throw new Error(_('重啟服務失敗')); });
         }, this)).then(L.bind(function() {
-            window.localStorage.setItem('sb_selected_conf', filename);
             var rows = document.querySelectorAll('tr[data-filename]');
             rows.forEach(function(row) {
                 var isTarget = (row.getAttribute('data-filename') === filename);
@@ -275,8 +278,8 @@ return L.view.extend({
                                                     var obj = JSON.parse(ta.value);
                                                     L.fs.write(confdir + '/' + file.name, JSON.stringify(obj, null, 4)).then(L.bind(function() { 
                                                         L.ui.hideModal(); 
-                                                        // 重新渲染列表，触发域名/IP识别
-                                                        this.renderList(container, confdir, window.localStorage.getItem('sb_selected_conf'));
+                                                        // 【修正2】：儲存編輯後刷新列表時，改從 UCI 獲取選中狀態
+                                                        this.renderList(container, confdir, L.uci.get('sing-box', 'main', 'selected_conf'));
                                                     }, this));
                                                 } catch(e) { alert(_('JSON 錯誤，無法儲存: ') + e.message); }
                                             }, this) }, _('儲存'))
@@ -308,7 +311,8 @@ return L.view.extend({
     render: function(data) {
         var isRunning = data[1];
         var confdir = L.uci.get('sing-box', 'main', 'confdir') || '/etc/sing-box';
-        var selectedConf = window.localStorage.getItem('sb_selected_conf');
+        // 【修正3】：初始加載時，直接從 UCI 讀取記錄的選中配置，而不是依賴本地瀏覽器存儲
+        var selectedConf = L.uci.get('sing-box', 'main', 'selected_conf');
 
         var m = new L.form.Map('sing-box', _('Sing-box Bridge'), _('SING-BOX 服務管理'));
         var s = m.section(L.form.TypedSection, '_status', _('服務控制'));
@@ -364,7 +368,8 @@ return L.view.extend({
                                 var filename = name.endsWith('.json') ? name : name + '.json';
                                 L.fs.write(confdir + '/' + filename, '{\n  "outbounds": []\n}').then(L.bind(function(){ 
                                     var container = document.getElementById('sb_file_list_container');
-                                    if (container) this.renderList(container, confdir, window.localStorage.getItem('sb_selected_conf'));
+                                    // 【修正4】：新建配置後刷新列表時，改從 UCI 獲取選中狀態
+                                    if (container) this.renderList(container, confdir, L.uci.get('sing-box', 'main', 'selected_conf'));
                                 }, this)).catch(function(e) { alert(_('創建失敗')); });
                             }
                         }, this) }, _('＋ 新建配置'))
