@@ -36,12 +36,12 @@ jobs:
           ./scripts/feeds update -a
           ./scripts/feeds install -a
           
-          # 拷贝仓库代码到 SDK 包目录
+          # 创建包目录
           mkdir -p package/luci-app-singbox
-          cp -r $GITHUB_WORKSPACE/* package/luci-app-singbox/
           
-          # 清理 Git 元数据，防止编译冲突
-          rm -rf package/luci-app-singbox/.git
+          # 关键点：明确指定拷贝目录，排除 sdk 和 .git
+          # 使用 rsync 可以更好地排除不必要的文件
+          rsync -av --exclude 'sdk' --exclude '.git' --exclude '.github' $GITHUB_WORKSPACE/ package/luci-app-singbox/
 
       - name: Compile IPK
         run: |
