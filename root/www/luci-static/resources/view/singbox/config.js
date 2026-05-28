@@ -22,8 +22,7 @@ return L.view.extend({
         }
     },
 
-    // --- 核心 1：全協議節點解析器 (Vmess/Vless/Trojan/SS/Hysteria2) ---
-// --- 核心 1：全協議節點解析器 (增強版，支援 Reality Vision / uTLS / ALPN) ---
+    // --- 核心 1：全協議節點解析器 (增強版，支援 Reality Vision / uTLS / ALPN) ---
     parseNodeLink: function(link) {
         if (!link || link.trim() === "") return null;
         link = link.trim();
@@ -168,8 +167,6 @@ return L.view.extend({
         ta.addEventListener('input', updateLineNumbers);
         setTimeout(updateLineNumbers, 50);
 
-        // 無感粘貼解析監聽
-
         // 無感粘貼解析監聽 (嚴格執行「一文件一節點」標準)
         linkInput.addEventListener('input', L.bind(function(e) {
             var val = e.target.value.trim();
@@ -184,7 +181,6 @@ return L.view.extend({
                 }
 
                 // 2. 直接生成完美對接 daed 的標準完整配置文件
-                // 摒棄複雜的追加邏輯，確保這個 JSON 就是一個純粹、乾淨的單節點配置
                 var standardConfig = {
                     "log": {
                         "level": "info",
@@ -252,12 +248,42 @@ return L.view.extend({
 
                     try {
                         var obj = JSON.parse(ta.value);
+
+                        // --- 隱形防呆校驗開始 ---
+                        var validOutboundTags = [];
+                        if (obj.outbounds && Array.isArray(obj.outbounds)) {
+                            for (var i = 0; i < obj.outbounds.length; i++) {
+                                if (obj.outbounds[i].tag) {
+                                    validOutboundTags.push(obj.outbounds[i].tag);
+                                }
+                            }
+                        }
+
+                        if (validOutboundTags.length === 0) {
+                            throw new Error("配置中必須至少包含一個有效的 outbound (出口節點)！");
+                        }
+
+                        if (obj.route) {
+                            if (obj.route.final && validOutboundTags.indexOf(obj.route.final) === -1) {
+                                throw new Error("路由邏輯錯誤：route.final 指向了不存在的節點 [" + obj.route.final + "]");
+                            }
+                            if (obj.route.rules && Array.isArray(obj.route.rules)) {
+                                for (var j = 0; j < obj.route.rules.length; j++) {
+                                    var rule = obj.route.rules[j];
+                                    if (rule.outbound && validOutboundTags.indexOf(rule.outbound) === -1) {
+                                        throw new Error("路由規則錯誤：第 " + (j + 1) + " 條規則指向了不存在的節點 [" + rule.outbound + "]");
+                                    }
+                                }
+                            }
+                        }
+                        // --- 隱形防呆校驗結束 ---
+
                         L.fs.write(confdir + '/' + finalName, JSON.stringify(obj, null, 4)).then(L.bind(function() { 
                             L.ui.hideModal(); 
                             var container = document.getElementById('sb_file_list_container');
                             if (container) this.renderList(container, confdir, L.uci.get('sing-box', 'main', 'selected_conf'));
                         }, this));
-                    } catch(e) { alert(_('JSON 錯誤，無法儲存: ') + e.message); }
+                    } catch(e) { alert(_('JSON 錯誤，無法儲存: \n') + e.message); }
                 }, this) }, _('儲存配置'))
             ])
         ]);
@@ -406,7 +432,6 @@ return L.view.extend({
                                 'style': 'padding:7px 22px; border-radius:100px; background:#46a546 !important; color:#fff !important; border:none; font-size:1.05em; font-weight:500;',
                                 'click': L.bind(this.handleSwitch, this, file.name, confdir) 
                             }, isSelected ? _('生效中') : _('選用')),
-                            // 【修改點】：這裡呼叫了新的 openEditor
                             E('button', { 
                                 'class': 'cbi-button cbi-button-neutral', 
                                 'style': 'margin-left:8px; padding:7px 22px; border-radius:100px; background:#999 !important; color:#fff !important; border:none; font-size:1.05em; font-weight:500;', 
@@ -489,7 +514,6 @@ return L.view.extend({
                                 setTimeout(L.bind(this.checkStatus, this), 600);
                             }, this));
                         }, this) }, _('停止 sing-box')),
-                        // 【修改點】：這裡呼叫了新的 openEditor (傳入 null 代表新建)
                         E('button', { 
                             'class': 'cbi-button cbi-button-add', 
                             'style': 'margin-left:10px; padding:6px 20px; border-radius:100px;', 
