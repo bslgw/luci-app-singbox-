@@ -1,1 +1,21 @@
-#
+#!/bin/sh
+
+# 1. 配置 uhttpd 獨立實例，監聽安全端口 2025 並指向自定義目錄
+uci -q batch <<EOF
+  set uhttpd.sb_bridge=uhttpd
+  add_list uhttpd.sb_bridge.listen_http='0.0.0.0:2025'
+  add_list uhttpd.sb_bridge.listen_http='[::]:2025'
+  set uhttpd.sb_bridge.home='/www/sb-bridge'
+  set uhttpd.sb_bridge.cgi_prefix='/cgi-bin'
+  commit uhttpd
+EOF
+
+# 2. 確保後端 API 腳本具有 Linux 可執行權限
+if [ -f "/www/sb-bridge/cgi-bin/sb-bridge/api.cgi" ]; then
+    chmod +x /www/sb-bridge/cgi-bin/sb-bridge/api.cgi
+fi
+
+# 3. 重啟 uhttpd 服務，使 2025 端口立即生效
+/etc/init.d/uhttpd restart
+
+exit 0
