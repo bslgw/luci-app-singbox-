@@ -10,19 +10,67 @@ return L.view.extend({
     handleSave: null,
     handleReset: null,
 
+    // --- 核心：节点解析器 ---
+    parseNodeLink: function(link) {
+        if (!link || link.trim() === "") { alert(_('請輸入節點鏈接')); return null; }
+        try {
+            var name = "Imported-Node";
+            if (link.indexOf('#') !== -1) {
+                var parts = link.split('#');
+                name = decodeURIComponent(parts[1]);
+                link = parts[0];
+            }
+            var protocol = link.split('://')[0];
+            var main = link.split('://')[1];
+            if (!main) return null;
+            
+            var query = {};
+            if (main.indexOf('?') !== -1) {
+                var qParts = main.split('?');
+                main = qParts[0];
+                qParts[1].split('&').forEach(function(item) {
+                    var kv = item.split('=');
+                    if (kv.length === 2) query[kv[0]] = kv[1];
+                });
+            }
+            
+            var auth = main.split('@');
+            var addr = auth[auth.length - 1].split(':');
+            var host = addr[0];
+            var port = parseInt(addr[1]);
+            var uuid = auth.length > 1 ? auth[0] : "";
+
+            var node = {
+                type: protocol,
+                tag: name,
+                server: host,
+                server_port: port
+            };
+
+            if (protocol === 'hysteria2') {
+                node.password = uuid;
+                node.tls = {
+                    enabled: true,
+                    server_name: query.sni || host,
+                    insecure: (query.insecure === '1')
+                };
+            } else {
+                node.uuid = uuid;
+            }
+            return node;
+        } catch (e) { alert(_('解析失敗: ') + e.message); return null; }
+    },
+
     getCache: function() { return window.sessionStorage.getItem('sb_net_cache'); },
     setCache: function(val) { window.sessionStorage.setItem('sb_net_cache', val); },
 
     load: function() {
         return Promise.all([
             L.uci.load('sing-box'),
-            L.fs.exec('/etc/init.d/sing-box', ['status']).then(function(res) {
-                return (res.code === 0);
-            }).catch(function() { return false; })
+            L.fs.exec('/etc/init.d/sing-box', ['status']).then(function(res) { return (res.code === 0); }).catch(function() { return false; })
         ]);
     },
 
-    // 【修改点】：仅替换了网络检测逻辑，保持 UI 结构完全不变
     checkNetwork: function(isExplicit) {
         var netDot = document.getElementById('sb_net_dot');
         var netText = document.getElementById('sb_net_text');
@@ -33,7 +81,6 @@ return L.view.extend({
             netDot.style.background = '#17a2b8'; 
         }
 
-        // 使用 curl 进行 HEAD 请求检测，这是目前 OpenWrt 下最稳健的方式
         var cmdCn = 'curl -I -s --connect-timeout 2 http://223.5.5.5 >/dev/null 2>&1 && exit 0 || exit 1';
         var cmdGlobal = 'curl -I -s --connect-timeout 2 http://www.google.com/generate_204 >/dev/null 2>&1 && exit 0 || exit 1';
 
@@ -142,8 +189,6 @@ return L.view.extend({
                         } catch(e) {
                             typeCell.textContent = 'JSON 錯誤'; typeCell.style.color = '#dc3545';
                         }
-                    }).catch(function(err) {
-                        typeCell.textContent = '讀取失敗'; typeCell.style.color = '#dc3545';
                     });
 
                     table.appendChild(E('tr', { 'class': 'tr', 'data-filename': file.name }, [
@@ -154,17 +199,69 @@ return L.view.extend({
                         E('td', { 'class': 'td', 'style': 'text-align:center; vertical-align:middle; white-space:nowrap; width:260px;' }, [
                             E('button', { 'class': 'btn cbi-button-apply', 'click': L.bind(this.handleSwitch, this, file.name, confdir) }, isSelected ? _('生效中') : _('選用')),
                             E('button', { 'class': 'btn cbi-button-neutral', 'style': 'margin-left:4px;', 'click': L.bind(function() {
-                                L.fs.read(confdir + '/' + file.name).then(function(content) {
-                                    var ta = E('textarea', { 'style': 'width:100%; height:400px;' }, [ content || '{}' ]);
-                                    L.ui.showModal(_('編輯'), [ E('div', {}, [ ta, E('div', { 'class': 'right' }, [
-                                        E('button', { 'class': 'btn', 'click': L.ui.hideModal }, _('取消')),
-                                        E('button', { 'class': 'btn cbi-button-positive', 'click': function() { 
-                                            L.fs.write(confdir + '/' + file.name, ta.value).then(function() { 
-                                                L.ui.hideModal(); 
-                                            }).catch(function(){ alert(_('儲存失敗')); });
-                                        }}, _('儲存'))
-                                    ]) ]) ]);
-                                }).catch(function(){ alert(_('無法讀取文件')); });
+                                L.fs.read(confdir + '/' + file.name).then(L.bind(function(content) {
+                                    var linesContainer = E('div', { 'style': 'width:40px; text-align:right; padding:10px 5px; background:#f5f5f5; color:#999; font-family:monospace; font-size:13px; overflow:hidden; border-right:1px solid #ccc; user-select:none;' }, '1');
+                                    var ta = E('textarea', { 'style': 'flex:1; width:100%; min-height:200px; max-height:40vh; font-family:monospace; font-size:13px; padding:10px; box-sizing:border-box; border:none; outline:none; white-space:pre; overflow-x:auto; resize:vertical;' }, [ content || '{\n\n}' ]);
+                                    var linkInput = E('input', { 'class': 'cbi-input-text', 'style': 'width:70%;', 'placeholder': _('在此粘貼節點鏈接以導入...') });
+                                    
+                                    var updateLineNumbers = function() {
+                                        var lines = ta.value.split('\n').length + 5;
+                                        var html = '';
+                                        for(var i = 1; i <= lines; i++) html += i + '<br>';
+                                        linesContainer.innerHTML = html;
+                                    };
+                                    
+                                    ta.addEventListener('scroll', function() { linesContainer.scrollTop = ta.scrollTop; });
+                                    ta.addEventListener('input', updateLineNumbers);
+                                    setTimeout(updateLineNumbers, 50);
+
+                                    L.ui.showModal(_('編輯: ') + file.name, [ 
+                                        E('div', { 'style': 'display:flex; gap:10px; margin-bottom:10px;' }, [
+                                            linkInput,
+                                            E('button', { 'class': 'btn cbi-button-add', 'click': L.bind(function() {
+                                                var node = this.parseNodeLink(linkInput.value);
+                                                if (node) {
+                                                    try {
+                                                        var obj = JSON.parse(ta.value || '{"outbounds":[]}');
+                                                        if (!obj.outbounds) obj.outbounds = [];
+                                                        obj.outbounds.push(node);
+                                                        ta.value = JSON.stringify(obj, null, 4);
+                                                        linkInput.value = ''; // 清空输入框
+                                                        updateLineNumbers();
+                                                    } catch(e) { alert(_('解析失敗: ') + e.message); }
+                                                }
+                                            }, this) }, _('追加導入'))
+                                        ]),
+                                        E('div', { 'style': 'border:1px solid #ccc; display:flex; margin-bottom:10px; max-height:50vh; overflow:hidden;' }, [ linesContainer, ta ]),
+                                        E('div', { 'class': 'right', 'style': 'display:flex; gap:10px;' }, [
+                                            E('button', { 'class': 'btn', 'click': function() { 
+                                                try {
+                                                    JSON.parse(ta.value);
+                                                    alert(_('JSON 格式正確'));
+                                                } catch(e) { alert(_('語法檢查失敗: ') + e.message); }
+                                            }}, _('檢查語法')),
+                                            E('button', { 'class': 'btn', 'click': function() { 
+                                                try {
+                                                    var obj = JSON.parse(ta.value);
+                                                    ta.value = JSON.stringify(obj, null, 4);
+                                                    updateLineNumbers();
+                                                } catch(e) { alert(_('格式化失敗: ') + e.message); }
+                                            }}, _('格式化 JSON')),
+                                            E('div', { 'style': 'flex-grow:1;' }),
+                                            E('button', { 'class': 'btn', 'click': L.ui.hideModal }, _('取消')),
+                                            E('button', { 'class': 'btn cbi-button-positive', 'click': L.bind(function() { 
+                                                try {
+                                                    var obj = JSON.parse(ta.value);
+                                                    L.fs.write(confdir + '/' + file.name, JSON.stringify(obj, null, 4)).then(L.bind(function() { 
+                                                        L.ui.hideModal(); 
+                                                        // 重新渲染列表，触发域名/IP识别
+                                                        this.renderList(container, confdir, window.localStorage.getItem('sb_selected_conf'));
+                                                    }, this));
+                                                } catch(e) { alert(_('JSON 錯誤，無法儲存: ') + e.message); }
+                                            }, this) }, _('儲存'))
+                                        ])
+                                    ]);
+                                }, this)).catch(function(){ alert(_('無法讀取文件')); });
                             }, this) }, _('編輯')),
                             E('button', { 'class': 'btn cbi-button-remove', 'style': 'margin-left:4px;', 'click': L.bind(function(ev) { 
                                 if (confirm(_('確定刪除此配置嗎？'))) {
@@ -240,22 +337,12 @@ return L.view.extend({
                             var name = prompt(_('新文件名:')); 
                             if(name) {
                                 var filename = name.endsWith('.json') ? name : name + '.json';
-                                L.fs.write(confdir + '/' + filename, '{\n  \n}').then(L.bind(function(){ 
+                                L.fs.write(confdir + '/' + filename, '{\n  "outbounds": []\n}').then(L.bind(function(){ 
                                     var container = document.getElementById('sb_file_list_container');
                                     if (container) this.renderList(container, confdir, window.localStorage.getItem('sb_selected_conf'));
                                 }, this)).catch(function(e) { alert(_('創建失敗')); });
                             }
                         }, this) }, _('＋ 新建配置'))
-                    ])
-                ]),
-                E('div', { 'style': 'display:flex; align-items:center; width:100%;' }, [
-                    E('div', { 'style': 'width:15%' }, ''), 
-                    E('div', { 'style': 'width:85%; display:flex; gap:16px; font-size:12px; color:#666; user-select:none;' }, [
-                        E('span', { 'style': 'display:flex; align-items:center; gap:4px;' }, [ E('span', { 'style': 'width:8px; height:8px; border-radius:50%; background:#46a546;' }), _('暢通') ]),
-                        E('span', { 'style': 'display:flex; align-items:center; gap:4px;' }, [ E('span', { 'style': 'width:8px; height:8px; border-radius:50%; background:#ffc107;' }), _('僅國內 - 代理失效') ]),
-                        E('span', { 'style': 'display:flex; align-items:center; gap:4px;' }, [ E('span', { 'style': 'width:8px; height:8px; border-radius:50%; background:#6f42c1;' }), _('僅國外 - 路由異常') ]),
-                        E('span', { 'style': 'display:flex; align-items:center; gap:4px;' }, [ E('span', { 'style': 'width:8px; height:8px; border-radius:50%; background:#dc3545;' }), _('斷網') ]),
-                        E('span', { 'style': 'display:flex; align-items:center; gap:4px;' }, [ E('span', { 'style': 'width:8px; height:8px; border-radius:50%; background:#17a2b8;' }), _('檢測中') ])
                     ])
                 ])
             ]);
