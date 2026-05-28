@@ -1,1 +1,322 @@
-#准备
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sing-box Bridge Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .glass { background: rgba(255, 255, 255, 0.85); backdrop-filter: blur(12px); }
+        body { background: linear-gradient(135deg, #f0f4f8 0%, #e2e8f0 100%); min-height: 100vh; }
+    </style>
+</head>
+<body class="text-gray-800 font-sans antialiased p-4 md:p-8">
+
+    <div class="max-w-6xl mx-auto space-y-6">
+        <header class="glass rounded-3xl p-6 shadow-xl border border-white/40 flex flex-col md:flex-row items-center justify-between gap-4">
+            <div>
+                <h1 class="text-2xl font-bold bg-gradient-to-r from-emerald-600 to-teal-600 bg-clip-text text-transparent">Sing-box Bridge</h1>
+                <p class="text-sm text-gray-500 mt-1">獨立 Web 服務管理面板 (Port: 2025)</p>
+            </div>
+            
+            <div class="flex flex-wrap items-center gap-6 bg-gray-50/80 p-3 rounded-2xl border border-gray-100">
+                <div class="flex items-center gap-2">
+                    <span id="status_dot" class="w-3 h-3 rounded-full bg-gray-400 animate-pulse"></span>
+                    <span id="status_text" class="font-semibold text-sm">讀取中...</span>
+                </div>
+                <div class="flex items-center gap-2">
+                    <span id="net_dot" class="w-3 h-3 rounded-full bg-gray-400"></span>
+                    <span id="net_text" class="font-semibold text-sm">連通性測試中...</span>
+                </div>
+            </div>
+
+            <div class="flex gap-3">
+                <button onclick="doAction('restart')" class="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-full text-sm font-medium shadow-lg shadow-emerald-600/20 transition-all">重啟服務</button>
+                <button onclick="doAction('stop')" class="px-5 py-2.5 bg-gray-500 hover:bg-gray-600 text-white rounded-full text-sm font-medium shadow-lg shadow-gray-500/10 transition-all">停止服務</button>
+                <button onclick="openCreateModal()" class="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-full text-sm font-medium shadow-lg shadow-blue-600/20 transition-all">＋ 新建配置</button>
+            </div>
+        </header>
+
+        <main class="glass rounded-3xl shadow-xl border border-white/40 overflow-hidden">
+            <div class="p-6 border-b border-gray-200/60 flex justify-between items-center">
+                <h2 class="text-lg font-bold text-gray-700">可用配置文件</h2>
+                <span id="conf_dir_lbl" class="text-xs font-mono text-gray-400 bg-gray-100 px-2.5 py-1 rounded-md">/etc/sing-box</span>
+            </div>
+            <div class="overflow-x-auto">
+                <table class="w-full text-left border-collapse">
+                    <thead>
+                        <tr class="bg-gray-50/50 text-gray-400 text-xs font-bold uppercase tracking-wider border-b border-gray-100">
+                            <th class="py-4 px-6 text-center w-12">狀態</th>
+                            <th class="py-4 px-6">檔案名稱</th>
+                            <th class="py-4 px-6 w-32">協議</th>
+                            <th class="py-4 px-6">域名 / IP</th>
+                            <th class="py-4 px-6 text-right pr-10 w-[340px]">管理操作</th>
+                        </tr>
+                    </thead>
+                    <tbody id="file_table_body" class="divide-y divide-gray-100 text-sm">
+                        </tbody>
+                </table>
+            </div>
+        </main>
+    </div>
+
+    <div id="editor_modal" class="hidden fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+        <div class="bg-white rounded-3xl w-full max-w-4xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+            <div class="p-6 border-b border-gray-100 flex justify-between items-center bg-gray-50">
+                <h3 id="modal_title" class="text-lg font-bold text-gray-800">編輯配置文件</h3>
+                <button onclick="closeModal()" class="text-gray-400 hover:text-gray-600 text-xl">&times;</button>
+            </div>
+            <div class="p-6 space-y-4 overflow-y-auto flex-1">
+                <div class="flex gap-2">
+                    <input id="link_input" type="text" placeholder="在此粘貼節點鏈接以導入 (hysteria2://...)" class="flex-1 px-4 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-blue-500">
+                    <button onclick="importNodeLink()" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-medium transition-all">追加導入</button>
+                </div>
+                <div class="border border-gray-200 rounded-2xl overflow-hidden flex h-96 font-mono text-xs">
+                    <div id="line_numbers" class="w-12 bg-gray-50 text-right pr-2 py-3 text-gray-400 select-none border-r border-gray-100 overflow-hidden leading-5">1</div>
+                    <textarea id="json_textarea" class="flex-1 p-3 focus:outline-none resize-none overflow-x-auto whitespace-pre leading-5" oninput="updateLineNumbers()" onscroll="syncScroll()"></textarea>
+                </div>
+            </div>
+            <div class="p-6 border-t border-gray-100 bg-gray-50 flex gap-3">
+                <button onclick="checkSyntax()" class="px-4 py-2 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-xl text-sm font-medium">檢查語法</button>
+                <button onclick="formatJson()" class="px-4 py-2 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-xl text-sm font-medium">格式化 JSON</button>
+                <div class="flex-1"></div>
+                <button onclick="closeModal()" class="px-4 py-2 bg-gray-300 hover:bg-gray-400 text-gray-700 rounded-xl text-sm font-medium">取消</button>
+                <button onclick="saveConfigFile()" class="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-sm font-medium shadow-lg shadow-emerald-600/20">儲存</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // 定義相對於當前 2025 獨立端口站點的 API 路徑
+        const API_BASE = '/cgi-bin/sb-bridge/api.cgi';
+        let currentEditingFile = '';
+
+        async function fetchAPI(action, params = {}, options = {}) {
+            const url = new URL(API_BASE, window.location.origin);
+            url.searchParams.append('action', action);
+            Object.keys(params).forEach(k => url.searchParams.append(k, params[k]));
+            const res = await fetch(url, options);
+            return res.json();
+        }
+
+        // 核心：純 JS 節點解析器 (完整移植自舊 LuCI 代碼)
+        function parseNodeLink(link) {
+            if (!link || link.trim() === "") { alert('請輸入節點鏈接'); return null; }
+            try {
+                let name = "Imported-Node";
+                if (link.indexOf('#') !== -1) {
+                    let parts = link.split('#');
+                    name = decodeURIComponent(parts[1]);
+                    link = parts[0];
+                }
+                let protocol = link.split('://')[0];
+                let main = link.split('://')[1];
+                if (!main) return null;
+                
+                let query = {};
+                if (main.indexOf('?') !== -1) {
+                    let qParts = main.split('?');
+                    main = qParts[0];
+                    qParts[1].split('&').forEach(item => {
+                        let kv = item.split('=');
+                        if (kv.length === 2) query[kv[0]] = kv[1];
+                    });
+                }
+                
+                let auth = main.split('@');
+                let addr = auth[auth.length - 1].split(':');
+                let host = addr[0];
+                let port = parseInt(addr[1]);
+                let uuid = auth.length > 1 ? auth[0] : "";
+
+                let node = { type: protocol, tag: name, server: host, server_port: port };
+                if (protocol === 'hysteria2') {
+                    node.password = uuid;
+                    node.tls = { enabled: true, server_name: query.sni || host, insecure: (query.insecure === '1') };
+                } else {
+                    node.uuid = uuid;
+                }
+                return node;
+            } catch (e) { alert('解析失敗: ' + e.message); return null; }
+        }
+
+        async function updateStatus() {
+            try {
+                const data = await fetchAPI('status');
+                const sDot = document.getElementById('status_dot');
+                const sText = document.getElementById('status_text');
+                
+                if(data.running) {
+                    sDot.className = "w-3 h-3 rounded-full bg-emerald-500 shadow-lg shadow-emerald-500/50";
+                    sText.textContent = "運行中"; sText.className = "font-bold text-sm text-emerald-600";
+                } else {
+                    sDot.className = "w-3 h-3 rounded-full bg-rose-500 shadow-lg shadow-rose-500/50";
+                    sText.textContent = "已停止"; sText.className = "font-bold text-sm text-rose-500";
+                }
+                document.getElementById('conf_dir_lbl').textContent = data.confdir;
+                return data.selected;
+            } catch(e) { console.error("無法更新運行狀態:", e); }
+        }
+
+        async function checkNetwork() {
+            const netDot = document.getElementById('net_dot');
+            const netText = document.getElementById('net_text');
+            try {
+                const data = await fetchAPI('test_net');
+                if (data.state === 'all_ok') { netDot.className = "w-3 h-3 rounded-full bg-emerald-500"; netText.textContent = "海內外暢通"; netText.className = "font-bold text-sm text-emerald-600"; }
+                else if (data.state === 'cn_only') { netDot.className = "w-3 h-3 rounded-full bg-amber-500"; netText.textContent = "僅國內連通"; netText.className = "font-bold text-sm text-amber-500"; }
+                else if (data.state === 'global_only') { netDot.className = "w-3 h-3 rounded-full bg-purple-500"; netText.textContent = "僅國外連通"; netText.className = "font-bold text-sm text-purple-500"; }
+                else { netDot.className = "w-3 h-3 rounded-full bg-rose-500"; netText.textContent = "網路已斷開"; netText.className = "font-bold text-sm text-rose-500"; }
+            } catch {
+                netDot.className = "w-3 h-3 rounded-full bg-gray-400"; netText.textContent = "狀態未知";
+            }
+        }
+
+        async function renderList() {
+            const selected = await updateStatus();
+            const files = await fetchAPI('list');
+            files.sort((a,b) => b.mtime - a.mtime);
+            
+            const tbody = document.getElementById('file_table_body');
+            tbody.innerHTML = '';
+            
+            files.forEach(file => {
+                const isSelected = (file.name === selected);
+                let types = '-', servers = '-';
+                
+                try {
+                    const json = JSON.parse(file.content);
+                    if (json.outbounds && Array.isArray(json.outbounds)) {
+                        let tArr = [], sArr = [];
+                        json.outbounds.forEach(out => {
+                            if (out.server && out.server !== '127.0.0.1') {
+                                sArr.push(out.server);
+                                if (out.type) tArr.push(out.type);
+                            }
+                        });
+                        if (tArr.length > 0) types = [...new Set(tArr)].join(', ');
+                        if (sArr.length > 0) servers = [...new Set(sArr)].join(', ');
+                    }
+                } catch(e) {}
+
+                const tr = document.createElement('tr');
+                tr.className = `hover:bg-gray-50/80 transition-all ${isSelected ? 'bg-emerald-50/40 font-medium text-emerald-900' : ''}`;
+                tr.innerHTML = `
+                    <td class="py-4 px-6 text-center">${isSelected ? '<span class="text-emerald-600 text-lg font-bold">✔</span>' : ''}</td>
+                    <td class="py-4 px-6 font-mono">${file.name}</td>
+                    <td class="py-4 px-6 text-xs uppercase font-bold text-gray-500">${types}</td>
+                    <td class="py-4 px-6 text-gray-500 max-w-xs truncate">${servers}</td>
+                    <td class="py-4 px-6 text-right pr-8">
+                        <div class="flex justify-end items-center gap-2 w-full">
+                            <button onclick="switchConfig('${file.name}', this)" class="px-4 py-1.5 rounded-full text-xs font-semibold tracking-wide transition-all ${isSelected ? 'bg-emerald-600 text-white shadow-md shadow-emerald-600/20' : 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200'}">
+                                ${isSelected ? '生效中' : '選用'}
+                            </button>
+                            <button onclick="openEditModal('${file.name}')" class="px-4 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-full text-xs font-semibold tracking-wide transition-all">編輯</button>
+                            <button onclick="deleteConfig('${file.name}')" class="px-4 py-1.5 bg-rose-50 text-rose-600 hover:bg-rose-100 rounded-full text-xs font-semibold tracking-wide transition-all">刪除</button>
+                        </div>
+                    </td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        async function switchConfig(name, btn) {
+            btn.disabled = true; btn.textContent = '應用中...';
+            await fetchAPI('switch', { file: name });
+            await renderList();
+            await checkNetwork();
+        }
+
+        async function doAction(action) {
+            await fetchAPI(action);
+            setTimeout(renderList, 1000);
+        }
+
+        async function deleteConfig(name) {
+            if (confirm('確定刪除此配置嗎？')) {
+                await fetchAPI('delete', { file: name });
+                renderList();
+            }
+        }
+
+        function openCreateModal() {
+            let name = prompt('新文件名:');
+            if(name) {
+                currentEditingFile = name.endsWith('.json') ? name : name + '.json';
+                document.getElementById('modal_title').textContent = '新建配置: ' + currentEditingFile;
+                document.getElementById('json_textarea').value = '{\n    "outbounds": []\n}';
+                document.getElementById('editor_modal').classList.remove('hidden');
+                updateLineNumbers();
+            }
+        }
+
+        async function openEditModal(name) {
+            currentEditingFile = name;
+            document.getElementById('modal_title').textContent = '編輯: ' + name;
+            const res = await fetch(`${API_BASE}?action=read&file=${name}`);
+            document.getElementById('json_textarea').value = await res.text();
+            document.getElementById('editor_modal').classList.remove('hidden');
+            updateLineNumbers();
+        }
+
+        function closeModal() { document.getElementById('editor_modal').classList.add('hidden'); }
+
+        async function saveConfigFile() {
+            const content = document.getElementById('json_textarea').value;
+            try {
+                JSON.parse(content);
+                await fetch(`${API_BASE}?action=write&file=${currentEditingFile}`, { method: 'POST', body: content });
+                closeModal();
+                renderList();
+            } catch(e) { alert('JSON 錯誤，無法儲存: ' + e.message); }
+        }
+
+        function checkSyntax() {
+            try { JSON.parse(document.getElementById('json_textarea').value); alert('JSON 語法正確'); } 
+            catch(e) { alert('語法檢查失敗: ' + e.message); }
+        }
+
+        function formatJson() {
+            const ta = document.getElementById('json_textarea');
+            try { ta.value = JSON.stringify(JSON.parse(ta.value), null, 4); updateLineNumbers(); } 
+            catch(e) { alert('格式化失敗: ' + e.message); }
+        }
+
+        function importNodeLink() {
+            const input = document.getElementById('link_input');
+            const ta = document.getElementById('json_textarea');
+            const node = parseNodeLink(input.value);
+            if (node) {
+                try {
+                    let obj = JSON.parse(ta.value || '{"outbounds":[]}');
+                    if (!obj.outbounds) obj.outbounds = [];
+                    obj.outbounds.push(node);
+                    ta.value = JSON.stringify(obj, null, 4);
+                    input.value = ''; updateLineNumbers();
+                } catch(e) { alert('追加解析失敗: ' + e.message); }
+            }
+        }
+
+        function updateLineNumbers() {
+            const ta = document.getElementById('json_textarea');
+            const count = ta.value.split('\n').length + 5;
+            let html = '';
+            for(let i=1; i<=count; i++) html += i + '<br>';
+            document.getElementById('line_numbers').innerHTML = html;
+        }
+
+        function syncScroll() {
+            const ta = document.getElementById('json_textarea');
+            document.getElementById('line_numbers').scrollTop = ta.scrollTop;
+        }
+
+        // 初始化加載
+        window.onload = () => {
+            renderList();
+            checkNetwork();
+            // 每 5 秒自動重新整理運行狀態
+            setInterval(updateStatus, 5000);
+        };
+    </script>
+</body>
+</html>
