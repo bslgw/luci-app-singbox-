@@ -1,5 +1,6 @@
 <img width="1156" height="408" alt="捕获" src="https://github.com/user-attachments/assets/8f75b50e-dfb3-4651-a3ed-9f0d53bfee87" />
 
+## 除图片以外所有内容由google AI 生成
 
 ### luci-app-sing-box-bridge
 
