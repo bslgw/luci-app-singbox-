@@ -27,6 +27,10 @@ endef
 define Package/luci-app-singbox/install
 	$(INSTALL_DIR) $(1)
 	$(CP) ./root/* $(1)/
+
+	# === 【新增】強制修復獨立 Web 相關腳本的 Linux 執行權限 ===
+	chmod 755 $(1)/etc/uci-defaults/99-sb-bridge-setup 2>/dev/null || true
+	chmod 755 $(1)/www/sb-bridge/cgi-bin/sb-bridge/api.cgi 2>/dev/null || true
 endef
 
 # 4. 普通用户安装后触发的后台自动化脚本
@@ -43,6 +47,11 @@ if [ -z "$${IPKG_INSTROOT}" ]; then
 
     # 温柔地通知 rpcd 重载 ACL 权限，而不中断当前的登录会话 (解决踢人下线问题)
     killall -HUP rpcd 2>/dev/null || true
+
+    # === 【新增】安裝後立即執行一次初始化腳本，讓 2025 端口立馬生效 ===
+    if [ -f "/etc/uci-defaults/99-sb-bridge-setup" ]; then
+        sh /etc/uci-defaults/99-sb-bridge-setup
+    fi
 fi
 exit 0
 endef
