@@ -28,7 +28,7 @@ web界面，端口:2025
 修改節點的 json，把 socket 作為節點的流量入口
 
 ```
-json"inbounds": [
+"inbounds": [
     {
       // start
       "type": "socks",
