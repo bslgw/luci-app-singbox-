@@ -1,5 +1,9 @@
-<img width="1130" height="511" alt="捕1获" src="https://github.com/user-attachments/assets/70f35870-f1eb-4b1a-a828-411900914a62" />
+<img width="1130" height="511" alt="image" src="https://github.com/user-attachments/assets/985ddd89-8191-4105-a5bf-ad94714204c9" /><img width="1130" height="511" alt="捕1获" src="https://github.com/user-attachments/assets/70f35870-f1eb-4b1a-a828-411900914a62" />
 openwrt控制台
+
+---
+
+<img width="1195" height="599" alt="捕获" src="https://github.com/user-attachments/assets/8cc0f937-b981-4849-828e-453b63d45b7b" />
 
 
 web界面，端口:2025
