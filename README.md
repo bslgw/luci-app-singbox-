@@ -52,7 +52,7 @@ json"inbounds": [
 opkg update
 
 # 安裝核心依賴
-opkg install sing-box jq
+opkg install curl
 ```
 
 ---
