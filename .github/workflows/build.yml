@@ -1,15 +1,58 @@
-- name: Compile IPK
-      run: |
-        cd sdk
-        # 1. 把你的整个仓库代码作为一个 "feed" 软链接进去，或者直接拷贝到 package 目录
-        mkdir -p package/luci-app-singbox
-        # 将当前仓库所有文件拷贝进 SDK 的 package 目录
-        cp -r $GITHUB_WORKSPACE/* package/luci-app-singbox/
-        
-        # 2. 准备编译环境
-        ./scripts/feeds update -a
-        ./scripts/feeds install -a
-        make defconfig
-        
-        # 3. 开始编译
-        make package/luci-app-singbox/compile V=s
+name: Build Sing-box Bridge IPK
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Compilation Environment
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential ccache gettext libncurses5-dev libssl-dev xz-utils zlib1g-dev python3 rsync gawk file wget curl
+
+      - name: Download Official OpenWrt SDK
+        run: |
+          ENCODED_URL="aHR0cHM6Ly9kb3dubG9hZHMub3BlbndydC5vcmcvcmVsZWFzZXMvMjIuMDMuMC90YXJnZXRzL3g4Ni82NC9vcGVud3J0LXNkay0yMi4wMy4wLXg4Ni02NF9nY2MtMTEuMi4wX211c2wuTGludXgteDg2XzY0LnRhci54eg=="
+          REAL_URL=$(echo $ENCODED_URL | base64 -d)
+          curl -L -o sdk.tar.xz "$REAL_URL"
+          mkdir sdk
+          tar -xJf sdk.tar.xz -C sdk --strip-components=1
+
+      - name: Prepare Package
+        run: |
+          cd sdk
+          # 初始化 feeds
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
+          
+          # 拷贝仓库代码到 SDK 包目录
+          mkdir -p package/luci-app-singbox
+          cp -r $GITHUB_WORKSPACE/* package/luci-app-singbox/
+          
+          # 清理 Git 元数据，防止编译冲突
+          rm -rf package/luci-app-singbox/.git
+
+      - name: Compile IPK
+        run: |
+          cd sdk
+          make defconfig
+          # 针对你的包进行编译，V=s 显示详细日志以供排查
+          make package/luci-app-singbox/compile V=s
+
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: luci-app-singbox-ipk
+          # 搜索 SDK 产生的 bin 目录下所有 ipk 文件
+          path: sdk/bin/**/*.ipk
