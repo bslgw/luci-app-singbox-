@@ -10,6 +10,7 @@ return L.view.extend({
     handleSave: null,
     handleReset: null,
 
+    // --- 核心：节点解析器 ---
     parseNodeLink: function(link) {
         if (!link || link.trim() === "") { alert(_('請輸入節點鏈接')); return null; }
         try {
@@ -195,91 +196,105 @@ return L.view.extend({
                         E('td', { 'class': 'td name-cell', 'style': 'vertical-align:middle; font-size:1.05em; ' + (isSelected ? 'font-weight:bold; color:#46a546;' : '') }, file.name),
                         typeCell,
                         infoCell,
-                        E('td', { 'class': 'td', 'style': 'vertical-align:middle; white-space:nowrap; width:320px;' }, [
-                            E('div', { 'style': 'display:flex; justify-content:flex-end; align-items:center; gap:8px; width:100%; padding-right:20px; box-sizing:border-box;' }, [
-                                E('button', { 
-                                    'class': 'cbi-button cbi-button-apply', 
-                                    'style': 'padding:7px 22px; border-radius:100px; background:#46a546 !important; color:#fff !important; border:none; font-size:1.05em; font-weight:500;',
-                                    'click': L.bind(this.handleSwitch, this, file.name, confdir) 
-                                }, isSelected ? _('生效中') : _('選用')),
-                                E('button', { 
-                                    'class': 'cbi-button cbi-button-neutral', 
-                                    'style': 'padding:7px 22px; border-radius:100px; background:#999 !important; color:#fff !important; border:none; font-size:1.05em; font-weight:500;', 
-                                    'click': L.bind(function() {
-                                    L.fs.read(confdir + '/' + file.name).then(L.bind(function(content) {
-                                        var linesContainer = E('div', { 'style': 'width:40px; text-align:right; padding:10px 5px; background:#f5f5f5; color:#999; font-family:monospace; font-size:13px; overflow:hidden; border-right:1px solid #ccc; user-select:none;' }, '1');
-                                        var ta = E('textarea', { 'style': 'flex:1; width:100%; min-height:200px; max-height:40vh; font-family:monospace; font-size:13px; padding:10px; box-sizing:border-box; border:none; outline:none; white-space:pre; overflow-x:auto; resize:vertical;' }, [ content || '{\n\n}' ]);
-                                        var linkInput = E('input', { 'class': 'cbi-input-text', 'style': 'width:70%;', 'placeholder': _('在此粘貼節點鏈接以導入...') });
-                                        
-                                        var updateLineNumbers = function() {
-                                            var lines = ta.value.split('\n').length + 5;
-                                            var html = '';
-                                            for(var i = 1; i <= lines; i++) html += i + '<br>';
-                                            linesContainer.innerHTML = html;
-                                        };
-                                        
-                                        ta.addEventListener('scroll', function() { linesContainer.scrollTop = ta.scrollTop; });
-                                        ta.addEventListener('input', updateLineNumbers);
-                                        setTimeout(updateLineNumbers, 50);
+                        E('td', { 'class': 'td', 'style': 'text-align:center; vertical-align:middle; white-space:nowrap; width:320px;' }, [
+                            // 选用/生效中 按钮 (大字号绿色胶囊)
+                            E('button', { 
+                                'class': 'cbi-button cbi-button-apply', 
+                                'style': 'padding:7px 22px; border-radius:100px; background:#46a546 !important; color:#fff !important; border:none; font-size:1.05em; font-weight:500;',
+                                'click': L.bind(this.handleSwitch, this, file.name, confdir) 
+                            }, isSelected ? _('生效中') : _('選用')),
+                            // 編輯 按钮 (大字号灰色胶囊)
+                            E('button', { 
+                                'class': 'cbi-button cbi-button-neutral', 
+                                'style': 'margin-left:8px; padding:7px 22px; border-radius:100px; background:#999 !important; color:#fff !important; border:none; font-size:1.05em; font-weight:500;', 
+                                'click': L.bind(function() {
+                                L.fs.read(confdir + '/' + file.name).then(L.bind(function(content) {
+                                    var linesContainer = E('div', { 'style': 'width:40px; text-align:right; padding:10px 5px; background:#f5f5f5; color:#999; font-family:monospace; font-size:13px; overflow:hidden; border-right:1px solid #ccc; user-select:none;' }, '1');
+                                    var ta = E('textarea', { 'style': 'flex:1; width:100%; min-height:200px; max-height:40vh; font-family:monospace; font-size:13px; padding:10px; box-sizing:border-box; border:none; outline:none; white-space:pre; overflow-x:auto; resize:vertical;' }, [ content || '{\n\n}' ]);
+                                    var linkInput = E('input', { 'class': 'cbi-input-text', 'style': 'width:70%;', 'placeholder': _('在此粘貼節點鏈接以導入...') });
+                                    
+                                    var updateLineNumbers = function() {
+                                        var lines = ta.value.split('\n').length + 5;
+                                        var html = '';
+                                        for(var i = 1; i <= lines; i++) html += i + '<br>';
+                                        linesContainer.innerHTML = html;
+                                    };
+                                    
+                                    ta.addEventListener('scroll', function() { linesContainer.scrollTop = ta.scrollTop; });
+                                    ta.addEventListener('input', updateLineNumbers);
+                                    setTimeout(updateLineNumbers, 50);
 
-                                        L.ui.showModal(_('編輯: ') + file.name, [ 
-                                            E('div', { 'style': 'display:flex; gap:10px; margin-bottom:10px;' }, [
-                                                linkInput,
-                                                E('button', { 'class': 'btn cbi-button-add', 'click': L.bind(function() {
-                                                    var node = this.parseNodeLink(linkInput.value);
-                                                    if (node) {
+                                    L.ui.showModal(_('編輯: ') + file.name, [ 
+                                        E('div', { 'style': 'display:flex; gap:10px; margin-bottom:10px;' }, [
+                                            linkInput,
+                                            E('button', { 'class': 'btn cbi-button-add', 'click': L.bind(function() {
+                                                var node = this.parseNodeLink(linkInput.value);
+                                                if (node) {
+                                                    var obj;
+                                                    // 【核心修正】：增强清洗逻辑 + 强力异常捕获兜底
+                                                    var rawText = (ta.value || '').replace(/^[\s\uFEFF\u00A0\u3000]+|[\s\uFEFF\u00A0\u3000]+$/g, ''); 
+                                                    
+                                                    if (rawText === "" || /^\{\s*\}$/.test(rawText) || rawText.indexOf('"') === -1) {
+                                                        obj = { "outbounds": [] };
+                                                    } else {
                                                         try {
-                                                            var obj = JSON.parse(ta.value || '{"outbounds":[]}');
-                                                            if (!obj.outbounds) obj.outbounds = [];
-                                                            obj.outbounds.push(node);
-                                                            ta.value = JSON.stringify(obj, null, 4);
-                                                            linkInput.value = '';
-                                                            updateLineNumbers();
-                                                        } catch(e) { alert(_('解析失敗: ') + e.message); }
+                                                            obj = JSON.parse(rawText);
+                                                        } catch(e) {
+                                                            // 如果包含硬伤无法解析（如首行非法不可见字符），直接兜底重新初始化，确保顺利追加
+                                                            obj = { "outbounds": [] };
+                                                        }
                                                     }
-                                                }, this) }, _('追加導入'))
-                                            ]),
-                                            E('div', { 'style': 'border:1px solid #ccc; display:flex; margin-bottom:10px; max-height:50vh; overflow:hidden;' }, [ linesContainer, ta ]),
-                                            E('div', { 'class': 'right', 'style': 'display:flex; gap:10px;' }, [
-                                                E('button', { 'class': 'btn', 'click': function() { 
-                                                    try {
-                                                        JSON.parse(ta.value);
-                                                        alert(_('JSON 格式正確'));
-                                                    } catch(e) { alert(_('語法檢查失敗: ') + e.message); }
-                                                }}, _('檢查語法')),
-                                                E('button', { 'class': 'btn', 'click': function() { 
-                                                    try {
-                                                        var obj = JSON.parse(ta.value);
-                                                        ta.value = JSON.stringify(obj, null, 4);
-                                                        updateLineNumbers();
-                                                    } catch(e) { alert(_('格式化失敗: ') + e.message); }
-                                                }}, _('格式化 JSON')),
-                                                E('div', { 'style': 'flex-grow:1;' }),
-                                                E('button', { 'class': 'btn', 'click': L.ui.hideModal }, _('取消')),
-                                                E('button', { 'class': 'btn cbi-button-positive', 'click': L.bind(function() { 
-                                                    try {
-                                                        var obj = JSON.parse(ta.value);
-                                                        L.fs.write(confdir + '/' + file.name, JSON.stringify(obj, null, 4)).then(L.bind(function() { 
-                                                            L.ui.hideModal(); 
-                                                            this.renderList(container, confdir, window.localStorage.getItem('sb_selected_conf'));
-                                                        }, this));
-                                                    } catch(e) { alert(_('JSON 錯誤，無法儲存: ') + e.message); }
-                                                }, this) }, _('儲存'))
-                                            ])
-                                        ]);
-                                    }, this)).catch(function(){ alert(_('無法讀取文件')); });
-                                }, this) }, _('編輯')),
-                                E('button', { 
-                                    'class': 'cbi-button cbi-button-remove', 
-                                    'style': 'padding:7px 22px; border-radius:100px; background:#dc3545 !important; color:#fff !important; border:none; font-size:1.05em; font-weight:500;', 
-                                    'click': L.bind(function(ev) { 
-                                    if (confirm(_('確定刪除此配置嗎？'))) {
-                                        L.fs.remove(confdir + '/' + file.name).then(L.bind(function(){ 
-                                            ev.target.closest('tr').remove(); 
-                                        }, this)).catch(function(){ alert(_('刪除失敗')); }); 
-                                    }
-                                }, this) }, _('刪除'))
-                            ])
+                                                    
+                                                    if (!obj.outbounds) obj.outbounds = [];
+                                                    obj.outbounds.push(node);
+                                                    ta.value = JSON.stringify(obj, null, 4);
+                                                    linkInput.value = ''; // 清空输入框
+                                                    updateLineNumbers();
+                                                }
+                                            }, this) }, _('追加導入'))
+                                        ]),
+                                        E('div', { 'style': 'border:1px solid #ccc; display:flex; margin-bottom:10px; max-height:50vh; overflow:hidden;' }, [ linesContainer, ta ]),
+                                        E('div', { 'class': 'right', 'style': 'display:flex; gap:10px;' }, [
+                                            E('button', { 'class': 'btn', 'click': function() { 
+                                                try {
+                                                    JSON.parse(ta.value);
+                                                    alert(_('JSON 格式正確'));
+                                                } catch(e) { alert(_('語法檢查失敗: ') + e.message); }
+                                            }}, _('檢查語法')),
+                                            E('button', { 'class': 'btn', 'click': function() { 
+                                                try {
+                                                    var obj = JSON.parse(ta.value);
+                                                    ta.value = JSON.stringify(obj, null, 4);
+                                                    updateLineNumbers();
+                                                } catch(e) { alert(_('格式化失敗: ') + e.message); }
+                                            }}, _('格式化 JSON')),
+                                            E('div', { 'style': 'flex-grow:1;' }),
+                                            E('button', { 'class': 'btn', 'click': L.ui.hideModal }, _('取消')),
+                                            E('button', { 'class': 'btn cbi-button-positive', 'click': L.bind(function() { 
+                                                try {
+                                                    var obj = JSON.parse(ta.value);
+                                                    L.fs.write(confdir + '/' + file.name, JSON.stringify(obj, null, 4)).then(L.bind(function() { 
+                                                        L.ui.hideModal(); 
+                                                        // 重新渲染列表，触发域名/IP识别
+                                                        this.renderList(container, confdir, window.localStorage.getItem('sb_selected_conf'));
+                                                    }, this));
+                                                } catch(e) { alert(_('JSON 錯誤，無法儲存: ') + e.message); }
+                                            }, this) }, _('儲存'))
+                                        ])
+                                    ]);
+                                }, this)).catch(function(){ alert(_('無法讀取文件')); });
+                            }, this) }, _('編輯')),
+                            // 刪除 按钮 (大字号红色胶囊)
+                            E('button', { 
+                                'class': 'cbi-button cbi-button-remove', 
+                                'style': 'margin-left:8px; padding:7px 22px; border-radius:100px; background:#dc3545 !important; color:#fff !important; border:none; font-size:1.05em; font-weight:500;', 
+                                'click': L.bind(function(ev) { 
+                                if (confirm(_('確定刪除此配置嗎？'))) {
+                                    L.fs.remove(confdir + '/' + file.name).then(L.bind(function(){ 
+                                        ev.target.closest('tr').remove(); 
+                                    }, this)).catch(function(){ alert(_('刪除失敗')); }); 
+                                }
+                            }, this) }, _('刪除'))
                         ])
                     ]));
                 }
