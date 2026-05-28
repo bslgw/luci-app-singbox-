@@ -1,4 +1,10 @@
-steps:
+name: Debug Repo Structure
+on: [push, workflow_dispatch]
+
+jobs:
+  debug:
+    runs-on: ubuntu-latest
+    steps:
       - name: Checkout Code
         uses: actions/checkout@v4
 
