@@ -8,7 +8,6 @@ on:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-  OPENWRT_VERSION: 23.05.4        # 建议升级到较新稳定版
 
 jobs:
   build:
@@ -21,15 +20,17 @@ jobs:
             sdk_url: https://downloads.openwrt.org/releases/23.05.4/targets/x86/64/openwrt-sdk-23.05.4-x86-64_gcc-12.3.0_musl.Linux-x86_64.tar.xz
 
           - target: aarch64_generic
-            sdk_url: https://downloads.openwrt.org/releases/23.05.4/targets/armvirt/64/openwrt-sdk-23.05.4-armvirt-64_gcc-12.3.0_musl.Linux-x86_64.tar.xz
+            sdk_url: https://downloads.openwrt.org/releases/23.05.4/targets/aarch64_generic/openwrt-sdk-23.05.4-aarch64_generic_gcc-12.3.0_musl.Linux-x86_64.tar.xz
 
           - target: armsr-armv8
             sdk_url: https://downloads.openwrt.org/releases/23.05.4/targets/armsr/armv8/openwrt-sdk-23.05.4-armsr-armv8_gcc-12.3.0_musl.Linux-x86_64.tar.xz
 
-          - target: ramips_mt7621
+          - target: ramips-mt7621
             sdk_url: https://downloads.openwrt.org/releases/23.05.4/targets/ramips/mt7621/openwrt-sdk-23.05.4-ramips-mt7621_gcc-12.3.0_musl.Linux-x86_64.tar.xz
 
-          # 可继续添加更多常用架构（如 mips_24kc、rockchip 等）
+          # 可继续添加其他常用架构，例如：
+          # - target: mediatek-filogic
+          #   sdk_url: https://downloads.openwrt.org/releases/23.05.4/targets/mediatek/filogic/openwrt-sdk-23.05.4-mediatek-filogic_gcc-12.3.0_musl.Linux-x86_64.tar.xz
 
     steps:
       - name: Checkout Code
@@ -37,7 +38,11 @@ jobs:
 
       - name: Download OpenWrt SDK
         run: |
+          echo "Downloading SDK for ${{ matrix.target }}"
           curl -L -o sdk.tar.xz "${{ matrix.sdk_url }}"
+
+      - name: Extract SDK
+        run: |
           mkdir -p sdk
           tar -xJf sdk.tar.xz -C sdk --strip-components=1
 
@@ -47,7 +52,6 @@ jobs:
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
-          # 复制你的包（推荐用 rsync 更干净）
           rm -rf package/luci-app-singbox
           mkdir -p package/luci-app-singbox
           rsync -av --exclude 'sdk' --exclude '.git' --exclude '.github' \
