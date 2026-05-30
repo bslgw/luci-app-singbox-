@@ -1,4 +1,4 @@
-name: Build Sing-box Bridge IPK
+name: Build Sing-box Bridge IPK (All Architecture)
 
 on:
   push:
@@ -11,40 +11,22 @@ env:
 
 jobs:
   build:
-    name: Build for ${{ matrix.target }}
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        include:
-          - target: x86_64
-            sdk_url: https://downloads.openwrt.org/releases/23.05.4/targets/x86/64/openwrt-sdk-23.05.4-x86-64_gcc-12.3.0_musl.Linux-x86_64.tar.xz
-
-          - target: aarch64_generic
-            sdk_url: https://downloads.openwrt.org/releases/23.05.4/targets/aarch64_generic/openwrt-sdk-23.05.4-aarch64_generic_gcc-12.3.0_musl.Linux-x86_64.tar.xz
-
-          - target: armsr-armv8
-            sdk_url: https://downloads.openwrt.org/releases/23.05.4/targets/armsr/armv8/openwrt-sdk-23.05.4-armsr-armv8_gcc-12.3.0_musl.Linux-x86_64.tar.xz
-
-          - target: ramips-mt7621
-            sdk_url: https://downloads.openwrt.org/releases/23.05.4/targets/ramips/mt7621/openwrt-sdk-23.05.4-ramips-mt7621_gcc-12.3.0_musl.Linux-x86_64.tar.xz
-
-          # 可继续添加其他常用架构，例如：
-          # - target: mediatek-filogic
-          #   sdk_url: https://downloads.openwrt.org/releases/23.05.4/targets/mediatek/filogic/openwrt-sdk-23.05.4-mediatek-filogic_gcc-12.3.0_musl.Linux-x86_64.tar.xz
 
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Download OpenWrt SDK
+      - name: Download OpenWrt SDK (x86_64)
         run: |
-          echo "Downloading SDK for ${{ matrix.target }}"
-          curl -L -o sdk.tar.xz "${{ matrix.sdk_url }}"
+          curl -L -o sdk.tar.xz \
+            https://downloads.openwrt.org/releases/23.05.4/targets/x86/64/openwrt-sdk-23.05.4-x86-64_gcc-12.3.0_musl.Linux-x86_64.tar.xz
 
       - name: Extract SDK
         run: |
           mkdir -p sdk
           tar -xJf sdk.tar.xz -C sdk --strip-components=1
+          echo "SDK extracted successfully"
 
       - name: Prepare Package
         run: |
@@ -52,6 +34,7 @@ jobs:
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
+          # 复制你的包
           rm -rf package/luci-app-singbox
           mkdir -p package/luci-app-singbox
           rsync -av --exclude 'sdk' --exclude '.git' --exclude '.github' \
@@ -64,9 +47,22 @@ jobs:
           make package/luci-app-singbox/clean || true
           make package/luci-app-singbox/compile V=s
 
-      - name: Upload Artifacts
+      - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: luci-app-singbox-${{ matrix.target }}
+          name: luci-app-singbox-all
           path: sdk/bin/packages/*/*/*.ipk
           retention-days: 30
+
+      - name: Show Package Info
+        run: |
+          echo "=== Generated IPK files ==="
+          find sdk/bin -name "*.ipk" | xargs ls -lh
+          echo "=== Architecture check ==="
+          for ipk in sdk/bin/packages/*/*/*.ipk; do
+            if [ -f "$ipk" ]; then
+              echo "$ipk"
+              tar -xOf "$ipk" control.tar.gz 2>/dev/null | tar -xOf - ./control | grep -E "Package|Architecture|Version"
+              echo "-------------------"
+            fi
+          done
