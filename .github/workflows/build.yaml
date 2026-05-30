@@ -17,7 +17,7 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Download OpenWrt SDK (x86_64)
+      - name: Download SDK
         run: |
           curl -L -o sdk.tar.xz \
             https://downloads.openwrt.org/releases/23.05.4/targets/x86/64/openwrt-sdk-23.05.4-x86-64_gcc-12.3.0_musl.Linux-x86_64.tar.xz
@@ -26,43 +26,39 @@ jobs:
         run: |
           mkdir -p sdk
           tar -xJf sdk.tar.xz -C sdk --strip-components=1
-          echo "SDK extracted successfully"
 
-      - name: Prepare Package
+      - name: Prepare & Compile Only My Package
         run: |
           cd sdk
+
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
-          # 复制你的包
+          # 清理旧包
+          rm -rf bin/packages/*/*/*.ipk
           rm -rf package/luci-app-singbox
+
           mkdir -p package/luci-app-singbox
-          rsync -av --exclude 'sdk' --exclude '.git' --exclude '.github' \
+          rsync -av --exclude='sdk' --exclude='.git' --exclude='.github' \
             $GITHUB_WORKSPACE/ package/luci-app-singbox/
 
-      - name: Compile IPK
-        run: |
-          cd sdk
+          # 只编译你的包
           make defconfig
           make package/luci-app-singbox/clean || true
           make package/luci-app-singbox/compile V=s
 
-      - name: Upload Artifact
+      - name: Upload ONLY My IPK
         uses: actions/upload-artifact@v4
         with:
-          name: luci-app-singbox-all
-          path: sdk/bin/packages/*/*/*.ipk
+          name: luci-app-singbox_all
+          path: sdk/bin/packages/*/*/*luci-app-singbox*.ipk
+          if-no-files-found: error
           retention-days: 30
 
-      - name: Show Package Info
+      - name: Final Result Check
         run: |
-          echo "=== Generated IPK files ==="
-          find sdk/bin -name "*.ipk" | xargs ls -lh
-          echo "=== Architecture check ==="
-          for ipk in sdk/bin/packages/*/*/*.ipk; do
-            if [ -f "$ipk" ]; then
-              echo "$ipk"
-              tar -xOf "$ipk" control.tar.gz 2>/dev/null | tar -xOf - ./control | grep -E "Package|Architecture|Version"
-              echo "-------------------"
-            fi
-          done
+          echo "🔍 Final IPK files:"
+          find sdk/bin -name "*.ipk" | head -10
+          echo ""
+          echo "📦 Your package:"
+          ls -lh sdk/bin/packages/*/*/*luci-app-singbox*.ipk 2>/dev/null || echo "Not found!"
