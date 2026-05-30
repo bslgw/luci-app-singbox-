@@ -8,51 +8,61 @@ on:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  OPENWRT_VERSION: 23.05.4        # 建议升级到较新稳定版
 
 jobs:
   build:
+    name: Build for ${{ matrix.target }}
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - target: x86_64
+            sdk_url: https://downloads.openwrt.org/releases/23.05.4/targets/x86/64/openwrt-sdk-23.05.4-x86-64_gcc-12.3.0_musl.Linux-x86_64.tar.xz
+
+          - target: aarch64_generic
+            sdk_url: https://downloads.openwrt.org/releases/23.05.4/targets/armvirt/64/openwrt-sdk-23.05.4-armvirt-64_gcc-12.3.0_musl.Linux-x86_64.tar.xz
+
+          - target: armsr-armv8
+            sdk_url: https://downloads.openwrt.org/releases/23.05.4/targets/armsr/armv8/openwrt-sdk-23.05.4-armsr-armv8_gcc-12.3.0_musl.Linux-x86_64.tar.xz
+
+          - target: ramips_mt7621
+            sdk_url: https://downloads.openwrt.org/releases/23.05.4/targets/ramips/mt7621/openwrt-sdk-23.05.4-ramips-mt7621_gcc-12.3.0_musl.Linux-x86_64.tar.xz
+
+          # 可继续添加更多常用架构（如 mips_24kc、rockchip 等）
+
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Setup Compilation Environment
+      - name: Download OpenWrt SDK
         run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential ccache gettext libncurses5-dev libssl-dev xz-utils zlib1g-dev python3 rsync gawk file wget curl
-
-      - name: Download Official OpenWrt SDK
-        run: |
-          ENCODED_URL="aHR0cHM6Ly9kb3dubG9hZHMub3BlbndydC5vcmcvcmVsZWFzZXMvMjIuMDMuMC90YXJnZXRzL3g4Ni82NC9vcGVud3J0LXNkay0yMi4wMy4wLXg4Ni02NF9nY2MtMTEuMi4wX211c2wuTGludXgteDg2XzY0LnRhci54eg=="
-          REAL_URL=$(echo $ENCODED_URL | base64 -d)
-          curl -L -o sdk.tar.xz "$REAL_URL"
-          mkdir sdk
+          curl -L -o sdk.tar.xz "${{ matrix.sdk_url }}"
+          mkdir -p sdk
           tar -xJf sdk.tar.xz -C sdk --strip-components=1
 
       - name: Prepare Package
         run: |
           cd sdk
-          # 初始化 feeds
           ./scripts/feeds update -a
           ./scripts/feeds install -a
-          
-          # 创建包目录
+
+          # 复制你的包（推荐用 rsync 更干净）
+          rm -rf package/luci-app-singbox
           mkdir -p package/luci-app-singbox
-          
-          # 关键点：明确指定拷贝目录，排除 sdk 和 .git
-          # 使用 rsync 可以更好地排除不必要的文件
-          rsync -av --exclude 'sdk' --exclude '.git' --exclude '.github' $GITHUB_WORKSPACE/ package/luci-app-singbox/
+          rsync -av --exclude 'sdk' --exclude '.git' --exclude '.github' \
+            $GITHUB_WORKSPACE/ package/luci-app-singbox/
 
       - name: Compile IPK
         run: |
           cd sdk
           make defconfig
-          # 针对你的包进行编译，V=s 显示详细日志以供排查
+          make package/luci-app-singbox/clean || true
           make package/luci-app-singbox/compile V=s
 
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: luci-app-singbox-ipk
-          # 搜索 SDK 产生的 bin 目录下所有 ipk 文件
-          path: sdk/bin/**/*.ipk
+          name: luci-app-singbox-${{ matrix.target }}
+          path: sdk/bin/packages/*/*/*.ipk
+          retention-days: 30
